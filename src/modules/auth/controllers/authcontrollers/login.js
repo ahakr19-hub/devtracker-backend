@@ -1,6 +1,6 @@
 const ApiError = require("../../../../utils/apiErrors");
 const { loginSchema } = require("../../schemas/auth.schema");
-const { logindev } = require("../../services/auth.service");
+const { logindev, googleLoginDev } = require("../../services/auth.service");
 
 const login = async (req, res, next) => {
   try {
@@ -24,5 +24,23 @@ const login = async (req, res, next) => {
     
   }
 };
+const googleLogin = async (req, res, next) => {
+  try {
+    const { idToken } = req.body;
+    if (!idToken) return next(new ApiError(400, "Google Token is required"));
 
-module.exports = login; 
+    const { developer, token } = await authService.googleLoginDev(idToken);
+
+    res.status(200).json({
+      message: "Google Login successful",
+      developer: {
+        id: developer._id,
+        name: developer.name,
+        email: developer.email,
+        role: developer.role,
+      },
+      token,
+    });
+  } catch (error) { next(error); }
+};
+module.exports = {login ,googleLogin}; 

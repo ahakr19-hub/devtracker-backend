@@ -1,5 +1,6 @@
 const ApiError = require("../../../utils/apiErrors");
 const dotenv = require("dotenv");
+const { OAuth2Client } = require('google-auth-library');
 dotenv.config({ path: "./config.env" });
 const Developer = require("../schemas/developer.schema");
 
@@ -80,6 +81,50 @@ const otpToCreatAcc = async (otp, token) => {
   }
 };
 
+
+
+
+// ... الأكواد القديمة ...
+
+
+
+// --- Google Login Service ---
+const googleLoginDev = async (idToken) => {
+  try {
+    const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+    const ticket = await client.verifyIdToken({
+      idToken,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    const { email, name, picture } = ticket.getPayload();
+
+    let developer = await findUserByEmail(email);
+
+    if (!developer) {
+      // إذا كان مستخدم جديد، ننشئ حساب بكلمة سر عشوائية
+      const randomPassword = Math.random().toString(36).slice(-10);
+      const hashedPassword = await bcrypt.hash(randomPassword, 10);
+      
+      developer = await Developer.create({
+        name,
+        email,
+        password: hashedPassword,
+        isVerified: true, // جوجل موثق بالفعل
+      });
+    }
+
+    const token = jwt.sign(
+      { id: developer._id, email: developer.email, role: developer.role },
+      process.env.JWT_SECRET,
+      { expiresIn: "24h" }
+    );
+
+    return { developer, token };
+  } catch (error) {
+    throw new ApiError(401, "فشل التحقق من حساب جوجل");
+  }
+};
+
 const logindev = async (email, password) => {
   const developer = await findUserByEmail(email);
   if (!developer) throw new ApiError(401, "Invalid email or password");
@@ -145,4 +190,4 @@ const changeDeveloperPassword = async (email, otp, newPassword) => {
   return { message: "Password changed successfully" };
 };
 
-module.exports = { registerdev, logindev, otpToCreatAcc, forgotPasswordDev , changeDeveloperPassword };
+module.exports = { registerdev, logindev, otpToCreatAcc, forgotPasswordDev , changeDeveloperPassword , googleLoginDev };
