@@ -1,6 +1,7 @@
 const ApiError = require("../../../utils/apiErrors");
 const dotenv = require("dotenv");
 const { OAuth2Client } = require('google-auth-library');
+const axios = require("axios");
 dotenv.config({ path: "./config.env" });
 const Developer = require("../schemas/developer.schema");
 
@@ -125,6 +126,59 @@ const googleLoginDev = async (idToken) => {
   }
 };
 
+const githubLoginDev = async (code) => {
+  try {
+    // 1. طلب الـ Access Token من جيتهاب
+    const tokenResponse = await axios.post(
+      "https://github.com/login/oauth/access_token",
+      {
+        client_id: process.env.GITHUB_CLIENT_ID,
+        client_secret: process.env.GITHUB_CLIENT_SECRET,
+        code: code,
+      },
+      { headers: { Accept: "application/json" } }
+    );
+
+    const accessToken = tokenResponse.data.access_token;
+    if (!accessToken) throw new ApiError(401, "Invalid GitHub code or expired");
+
+    // 2. جلب بيانات المستخدم (Profile)
+    const userResponse = await axios.get("https://api.github.com/user", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    const { name, email, login, id } = userResponse.data;
+
+    // جيتهاب أحياناً مابيرجعش الـ email لو اليوزر عامله private
+    const userEmail = email || `${login}@github.com`;
+
+    let developer = await findUserByEmail(userEmail);
+
+    if (!developer) {
+      // مستخدم جديد -> سجل بياناته
+      const randomPassword = Math.random().toString(36).slice(-10);
+      const hashedPassword = await bcrypt.hash(randomPassword, 10);
+
+      developer = await Developer.create({
+        name: name || login,
+        email: userEmail,
+        password: hashedPassword,
+        isVerified: true, // جيتهاب موثق الحساب
+      });
+    }
+
+    // 3. توقيع الـ JWT بتاع الـ DevTracker
+    const token = jwt.sign(
+      { id: developer._id, email: developer.email, role: developer.role },
+      process.env.JWT_SECRET,
+      { expiresIn: "24h" }
+    );
+
+    return { developer, token };
+  } catch (error) {
+    throw new ApiError(401, "GitHub Authentication Failed");
+  }
+};
 const logindev = async (email, password) => {
   const developer = await findUserByEmail(email);
   if (!developer) throw new ApiError(401, "Invalid email or password");
@@ -190,4 +244,4 @@ const changeDeveloperPassword = async (email, otp, newPassword) => {
   return { message: "Password changed successfully" };
 };
 
-module.exports = { registerdev, logindev, otpToCreatAcc, forgotPasswordDev , changeDeveloperPassword , googleLoginDev };
+module.exports = { registerdev, logindev, otpToCreatAcc, forgotPasswordDev , changeDeveloperPassword , googleLoginDev , githubLoginDev };

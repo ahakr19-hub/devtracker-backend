@@ -1,6 +1,6 @@
 const ApiError = require("../../../../utils/apiErrors");
 const { loginSchema } = require("../../schemas/auth.schema");
-const { logindev, googleLoginDev } = require("../../services/auth.service");
+const { logindev, googleLoginDev, githubLoginDev } = require("../../services/auth.service");
 
 const login = async (req, res, next) => {
   try {
@@ -43,4 +43,26 @@ const googleLogin = async (req, res, next) => {
     });
   } catch (error) { next(error); }
 };
-module.exports = {login ,googleLogin}; 
+
+const githubLogin = async (req, res, next) => {
+  try {
+    const { code } = req.body; // الكود اللي هيرجع من الـ Angular
+    if (!code) return next(new ApiError(400, "GitHub code is required"));
+
+    const { developer, token } = await githubLoginDev(code);
+
+    res.status(200).json({
+      message: "GitHub Login successful",
+      developer: {
+        id: developer._id,
+        name: developer.name,
+        email: developer.email,
+        role: developer.role,
+      },
+      token,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+module.exports = {login ,googleLogin , githubLogin}; 
