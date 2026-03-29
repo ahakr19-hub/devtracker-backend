@@ -46,7 +46,7 @@ const googleLogin = async (req, res, next) => {
 
 const githubLogin = async (req, res, next) => {
   try {
-    const { code } = req.body; // الكود اللي هيرجع من الـ Angular
+    const { code } = req.body; 
     if (!code) return next(new ApiError(400, "GitHub code is required"));
 
     const { developer, token } = await githubLoginDev(code);

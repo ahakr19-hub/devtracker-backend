@@ -1,5 +1,6 @@
 const ApiError = require("../../../utils/apiErrors");
 const Project = require("../schemas/project.schema");
+const Developer = require("../schemas/developer.schema");
 const mongoose = require("mongoose")
 const createProject = async ({
   name,
@@ -74,6 +75,15 @@ const deleteOneProject = async (ownerId, projectId) => {
   return project;
 };
 
+// src/modules/projects/repositories/auth.repository.js
+
+const incrementDeveloperProjectCount = async (developerId) => {
+  return await  Developer.findByIdAndUpdate(
+    developerId,
+    { $inc: { projectCount: 1 } }, 
+    { new: true }
+  );
+};
 const countAllProjects = async (developerId) => {
   return await Project.countDocuments({
     owner: developerId,

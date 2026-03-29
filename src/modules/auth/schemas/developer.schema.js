@@ -23,6 +23,23 @@ const developerSchema = new mongoose.Schema(
       default: "developer",
       lowercase: true,
     },
+
+    // --- حقول الـ Free Trial والاشتراك الجديدة ---
+    subscription: {
+      plan: { 
+        type: String, 
+        enum: ["free", "pro", "enterprise"], 
+        default: "free" 
+      },
+      isPremium: { type: Boolean, default: false },
+      stripeCustomerId: { type: String }, // هنحتاجه لما نربط Stripe
+    },
+    projectCount: { 
+      type: Number, 
+      default: 0 
+    },
+    // ------------------------------------------
+
     resetOTP: { type: String },
     resetOTPExpires: { type: Date },
     resetOTPAttempts: {
@@ -30,37 +47,29 @@ const developerSchema = new mongoose.Schema(
       default: 0,
     },
 
-    // داخل الـ developerSchema في ملف developer.schema.js
-
-teams: [{
-  adminId: { 
-    type: mongoose.Schema.Types.ObjectId, 
-    ref: "Developer" 
-  },
-  joinedAt: { 
-    type: Date, 
-    default: Date.now 
-  },
-  // هنا بنحدد المطور ده يقدر يعمل إيه في فريق الأدمن ده
-  permissions: {
-    canCreateProjects: { type: Boolean, default: false },
-    canEditProjects: { type: Boolean, default: false },
-    canDeleteProjects: { type: Boolean, default: false },
-    canManageTasks: { type: Boolean, default: false }, // غالباً أي حد بينضم بيقدر يدير التاكات
-    canSeeFinancials: { type: Boolean, default: false } // هل يشوف الفلوس والـ Hourly Rate؟
-  }
-}],
+    teams: [{
+      adminId: { 
+        type: mongoose.Schema.Types.ObjectId, 
+        ref: "Developer" 
+      },
+      joinedAt: { 
+        type: Date, 
+        default: Date.now 
+      },
+      permissions: {
+        canCreateProjects: { type: Boolean, default: false },
+        canEditProjects: { type: Boolean, default: false },
+        canDeleteProjects: { type: Boolean, default: false },
+        canManageTasks: { type: Boolean, default: false },
+        canSeeFinancials: { type: Boolean, default: false }
+      }
+    }],
 
     resetOTPLastRequest: {
       type: Date,
     }
-
-    
   },
-
-  
-
-  { timestamps: true },
+  { timestamps: true }
 );
 
 module.exports = mongoose.model("Developer", developerSchema);

@@ -27,10 +27,11 @@ const createProjectDev = async (req, res, next) => {
 
     res.status(201).json({
       status: "success",
-      data: project,
       message: "Project created successfully",
+      data: project,
     });
   } catch (error) {
+    // هنا الـ error اللي راجع من الـ Service (سواء 403 limit أو غيره) هيمر للـ Middleware
     next(error);
   }
 };
@@ -39,10 +40,13 @@ const completedProjectDev = async (req, res, next) => {
   try {
     const projectId = req.params["id"];
     const developerId = req.user._id;
-    const deletedProject = await completedDevProject(developerId, projectId);
-    res.status(201).json({
-      message: "project completed and archived successfully",
-      deletedProject,
+    
+    const completedProject = await completedDevProject(developerId, projectId);
+    
+    res.status(200).json({
+      status: "success",
+      message: "Project completed and archived successfully",
+      data: completedProject,
     });
   } catch (error) {
     next(error);
@@ -62,10 +66,11 @@ const getAllArchivedProjects = async (req, res, next) => {
     );
 
     res.status(200).json({
+      status: "success",
       page,
       limit,
       totalHistory,
-      archivedProjects,
+      data: archivedProjects,
     });
   } catch (error) {
     next(error);
@@ -85,10 +90,11 @@ const getAllProjects = async (req, res, next) => {
     );
 
     res.status(200).json({
+      status: "success",
       page,
       limit,
       total: totalActiveProjects,
-      Projects,
+      data: Projects,
     });
   } catch (error) {
     next(error);
@@ -99,8 +105,13 @@ const deleteProject = async (req, res, next) => {
   try {
     const developerId = req.user._id;
     const projectId = req.params["id"];
+    
     await deleteDevProject(developerId, projectId);
-    res.status(203).json({ message: "project deleted successfully" });
+    
+    res.status(200).json({ 
+      status: "success",
+      message: "Project deleted successfully" 
+    });
   } catch (error) {
     next(error);
   }
@@ -109,10 +120,14 @@ const deleteProject = async (req, res, next) => {
 const deleteAllProjects = async (req, res, next) => {
   try {
     const developerId = req.user._id;
-    const removedProjects = await deleteAllDevProject(developerId);
-    if (!removedProjects)
-      return next(new ApiError(404, "No projects found in history"));
-    res.status(201).json({ messsage: "history cleared successfully" });
+    
+    const result = await deleteAllDevProject(developerId);
+    
+    res.status(200).json({ 
+      status: "success",
+      message: "History cleared successfully",
+      deletedCount: result.deletedCount
+    });
   } catch (error) {
     next(error);
   }

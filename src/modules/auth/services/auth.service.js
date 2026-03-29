@@ -128,7 +128,6 @@ const googleLoginDev = async (idToken) => {
 
 const githubLoginDev = async (code) => {
   try {
-    // 1. طلب الـ Access Token من جيتهاب
     const tokenResponse = await axios.post(
       "https://github.com/login/oauth/access_token",
       {
