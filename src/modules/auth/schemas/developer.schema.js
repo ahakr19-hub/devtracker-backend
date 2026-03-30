@@ -26,10 +26,10 @@ const developerSchema = new mongoose.Schema(
 
     // --- حقول الـ Free Trial والاشتراك الجديدة ---
     subscription: {
-      plan: { 
-        type: String, 
-        enum: ["free", "pro", "enterprise"], 
-        default: "free" 
+      plan: {
+        type: String,
+        enum: ["free", "pro", "enterprise"],
+        default: "free"
       },
       isPremium: { type: Boolean, default: false },
       stripeCustomerId: { type: String }, // هنحتاجه لما نربط Stripe
@@ -53,9 +53,9 @@ const developerSchema = new mongoose.Schema(
         default: "USD"
       }
     },
-    projectCount: { 
-      type: Number, 
-      default: 0 
+    projectCount: {
+      type: Number,
+      default: 0
     },
     // ------------------------------------------
 
@@ -67,13 +67,13 @@ const developerSchema = new mongoose.Schema(
     },
 
     teams: [{
-      adminId: { 
-        type: mongoose.Schema.Types.ObjectId, 
-        ref: "Developer" 
+      adminId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Developer"
       },
-      joinedAt: { 
-        type: Date, 
-        default: Date.now 
+      joinedAt: {
+        type: Date,
+        default: Date.now
       },
       permissions: {
         canCreateProjects: { type: Boolean, default: false },

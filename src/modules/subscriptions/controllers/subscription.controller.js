@@ -2,7 +2,9 @@ const paymobService = require('../services/paymob.service');
 const stripeService = require('../services/stripe.service');
 const Plan = require('../schemas/plan.schema');
 const ApiError = require('../../../utils/apiErrors');
-
+const { findUserById } = require('../../auth/repositories/auth.repository');
+const mongoose = require("mongoose");
+const Developer = require('../../auth/schemas/developer.schema');
 exports.checkout = async (req, res, next) => {
   try {
     const { planId, currency } = req.body;
@@ -10,11 +12,27 @@ exports.checkout = async (req, res, next) => {
     console.log("Searching for Plan ID:", planId);
     const plan1 = await Plan.findById(planId);
     console.log("Plan found in DB:", plan1);
+    console.log("Developer ID being sent to Stripe:", req.user._id.toString());
+    console.log("Developer object:", req.user);
+    const objectId = new mongoose.Types.ObjectId("69cad6c0cd505487028ea850");
 
+    const result = await findUserById(
+      objectId,
+      { $set: { "subscription.status": "active", "subscription.isPremium": true } },
+      { new: true }
+    );
+
+    console.log("DB Name:", mongoose.connection.db.databaseName);
+    console.log("Collection Name:", Developer.collection.collectionName);
+    console.log("New status:", result?.subscription?.status);
+    console.log("updatedAt:", result?.updatedAt);
     const plan = await Plan.findById(planId);
     if (!plan) {
       return next(new ApiError(404, 'Plan not found'));
     }
+
+
+
 
     developer.subscription = developer.subscription || {};
     // Only save temp info, don't grant the plan tier or interval until payment is successful

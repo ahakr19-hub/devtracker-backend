@@ -3,7 +3,7 @@ const http = require("http");
 const { Server } = require("socket.io");
 const helmet = require("helmet");
 const cors = require("cors");
-const jwt = require("jsonwebtoken"); // هنحتاج الـ JWT هنا للتفتيش
+const jwt = require("jsonwebtoken");
 const dbConnection = require("./config/db");
 const regRouter = require("./modules/auth/routes/auth.routes");
 const errorMiddleware = require("./middlewares/error.middleware");
@@ -18,43 +18,34 @@ require('./utils/taskQueue');
 const app = express();
 const port = 4200;
 
-// 1. إنشاء Server يدعم WebSockets
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "*", // في الإنتاج حط رابط الأنجولار بتاعك
+    origin: "*",
     methods: ["GET", "POST"]
   }
 });
-// لازم ده يكون قبل أي حاجة عشان يفك شفرة الـ JSON في الريكويست العادي بس نستثني الاسترايب ميعملش فيه كده
+
+// ✅ Middleware واحد بس — بيدي الـ webhook raw body والباقي json
 app.use((req, res, next) => {
-  if (req.originalUrl.includes('webhook')) {
-    next();
+  if (req.originalUrl.includes('/webhooks/')) {
+    express.raw({ type: 'application/json' })(req, res, next);
   } else {
-    express.json()(req, res, next);
+    express.json({ limit: "10kb" })(req, res, next);
   }
 });
 
-app.use('/subscribe/webhook', express.raw({ type: 'application/json' }));
-
-// 2. جعل الـ io متاح عالمياً
 global.io = io;
 
-// 3. تأمين الـ Socket باستخدام JWT (Middleware)
-// ده بيشتغل قبل ما الـ Client يعمل Connect فعلياً
 io.use((socket, next) => {
-  const token = socket.handshake.auth.token; // استلام التوكن من الـ Client
+  const token = socket.handshake.auth.token;
 
   if (!token) {
     return next(new Error("Authentication error: No token provided"));
   }
 
   try {
-    // فك التوكن والتأكد إنه سليم (JWT_SECRET لازم يكون نفس اللي في الـ login)
     const decoded = jwt.verify(token, process.env.JWT_SECRET || "your_jwt_secret_here");
-
-    // بنخزن بيانات اليوزر جوه الـ socket عشان نستخدمها بعدين
-    // افترضنا إن التوكن جواه _id أو id
     socket.userId = decoded.id || decoded._id;
     next();
   } catch (err) {
@@ -62,13 +53,8 @@ io.use((socket, next) => {
   }
 });
 
-
-
-// 4. إدارة اتصالات السوكيت بعد التأكد من الهوية
 io.on("connection", (socket) => {
   console.log(`User connected securely: ${socket.userId}`);
-
-  // المستخدم بينضم فوراً لغرفة باسم الـ ID بتاعه المستخرج من التوكن
   socket.join(socket.userId.toString());
   console.log(`User ${socket.userId} joined their private room`);
 
@@ -97,14 +83,6 @@ app.use(
   })
 );
 
-app.use((req, res, next) => {
-  if (req.originalUrl.includes('/webhooks/stripe')) {
-    next();
-  } else {
-    express.json({ limit: "10kb" })(req, res, next);
-  }
-});
-
 app.get("/", (req, res) => {
   res.json({ message: "Hello from secure socket server" });
 });
@@ -119,7 +97,6 @@ app.use('/subscribe', subscriptionRouter);
 
 app.use(errorMiddleware);
 
-// 5. تشغيل الـ server (وليس الـ app)
 server.listen(port, () => {
   console.log(`Server running on port ${port} with SECURE Socket.io support`);
 });

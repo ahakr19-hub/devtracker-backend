@@ -12,7 +12,7 @@ exports.handleStripeWebhook = async (req, res, next) => {
     rawBody = JSON.parse(req.body.toString());
   }
 
-  // 2. تخطي التوقيع للتجربة اليدوية
+  // 2. تخطي التوقيع للتجربة اليدوية أو في حال عدم وجوده
   if (!signature) {
     console.log("⚠️ Warning: No Signature found, bypassing for testing...");
     event = rawBody; // استخدم الـ Body اللي حولناه فوق
@@ -20,6 +20,7 @@ exports.handleStripeWebhook = async (req, res, next) => {
     try {
       event = stripeService.constructWebhookEvent(req.body, signature);
     } catch (err) {
+      console.log(`❌ Webhook Signature Verification Error: ${err.message}`);
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
   }
@@ -28,30 +29,70 @@ exports.handleStripeWebhook = async (req, res, next) => {
   try {
     if (event && event.type === 'checkout.session.completed') {
       const session = event.data.object;
-      const developerId = session.metadata?.developerId;
 
-      console.log(">>> Processing Update for Dev ID:", developerId);
+      // 1. استخراج الداتا الممكنة
+      const metadataDeveloperId = session.metadata?.developerId;
+      const clientId = session.client_reference_id;
+      const planId = session.metadata?.planId;
+      const stripeCustomerId = session.customer;
 
-      const updatedUser = await Developer.findByIdAndUpdate(
-        developerId,
-        {
-          $set: {
-            "subscription.status": "active",
-            "subscription.isPremium": true,
-            "subscription.plan": "pro"
-          }
-        },
-        { new: true } // السطر ده مهم جداً عشان يرجع الداتا الجديدة
-      );
+      console.log(">>> [Webhook] Event Received!");
+      console.log("Metadata:", session.metadata);
+      console.log("Customer ID:", stripeCustomerId);
 
-      // ضيف السطر ده وشوف هيطبع إيه في الـ Terminal
-      console.log("Check this value in Terminal -> IsPremium:", updatedUser.subscription.isPremium);
+      let developer = null;
 
-      if (updatedUser) {
-        console.log("✅✅✅ DONE: User is now Premium!");
-      } else {
-        console.log("❌ Developer ID not found in DB");
+      // 2. البحث عن المطور بأكثر من طريقة عشان لو بتجرب من Postman أو CLI
+      if (metadataDeveloperId) {
+        developer = await Developer.findById(metadataDeveloperId);
       }
+      if (!developer && clientId) {
+        developer = await Developer.findById(clientId);
+      }
+      if (!developer && stripeCustomerId) {
+        developer = await Developer.findOne({ "subscription.stripeCustomerId": stripeCustomerId });
+      }
+
+      // لو ملقيناش المطور خالص، نطلع إيرور ومكملش
+      if (!developer) {
+        console.log(`❌ ERROR: Could not find Developer in DB! Metadata ID: ${metadataDeveloperId}, Customer ID: ${stripeCustomerId}`);
+        return res.status(200).json({ received: true });
+      }
+
+      console.log("✅ Developer found in DB:", developer.email);
+
+      // 3. تحديد الخطة (Plan)
+      let planTier = "pro";
+      let planInterval = "monthly";
+
+      if (planId) {
+        const dbPlan = await Plan.findById(planId);
+        if (dbPlan) {
+          planTier = dbPlan.tier;
+          planInterval = dbPlan.interval;
+          console.log(`✅ Plan found in DB: ${planTier} / ${planInterval}`);
+        } else {
+          console.log("⚠️ Plan ID from metadata not found in DB. Defaulting to 'pro'.");
+        }
+      }
+
+      // 4. تحديث داتا المطور بالطريقة الأضمن في Mongoose
+      if (!developer.subscription) {
+        developer.subscription = {};
+      }
+
+      developer.subscription.status = "active";
+      developer.subscription.isPremium = true;
+      developer.subscription.plan = planTier;
+      developer.subscription.stripeCustomerId = stripeCustomerId;
+      developer.subscription.stripeSubscriptionId = session.subscription;
+      developer.subscription.interval = planInterval;
+
+      // السطر ده هو السر! بيجبر مونجوز يحفظ التعديلات في الكائنات المتداخلة (Nested Objects)
+      developer.markModified("subscription");
+      await developer.save();
+
+      console.log("🎉🎉🎉 SUCCESS: Developer updated perfectly in Atlas! isPremium:", developer.subscription.isPremium);
     } else {
       console.log("ℹ️ Event received but not processed:", event?.type);
     }
