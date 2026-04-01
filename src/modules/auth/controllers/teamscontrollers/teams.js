@@ -131,8 +131,7 @@ const updateMemberPermission = async (req, res, next) => {
   }
 };
 
-// متنساش تضيفها في الـ module.exports تحت
-// module.exports = { ..., updateMemberPermission };
+
 
 module.exports = {
   sendInvite,
