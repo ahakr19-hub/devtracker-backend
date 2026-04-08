@@ -13,6 +13,7 @@ const TaskActivity = require("./modules/auth/routes/taskActivity.routes");
 const { developerRouter } = require("./modules/auth/routes/developer.routes");
 const { invitaionsRouter } = require("./modules/auth/routes/invitations.routes");
 const subscriptionRouter = require("./modules/subscriptions/routes/subscription.routes");
+const feedbackRouter = require("./modules/feedbacks/routers/feedback.routes");
 require('./utils/taskQueue');
 
 const app = express();
@@ -94,6 +95,7 @@ app.use('/activityproject', TaskActivity);
 app.use('/developerSettings', developerRouter);
 app.use('/invitations', invitaionsRouter);
 app.use('/subscribe', subscriptionRouter);
+app.use('/feedbacks', feedbackRouter);
 
 app.use(errorMiddleware);
 

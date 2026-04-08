@@ -54,6 +54,20 @@ const changePassSchema = joi.object({
 
   newPassword: joi.string().min(8).required(),
 });
+const createFeedbackSchema = joi.object({
+  developerId: joi.string().regex(/^[0-9a-fA-F]{24}$/).required(),
+  type: joi.string().valid("bug", "feature", "improvement", "other").required(),
+  subject: joi.string().min(5).max(100).trim().required(),
+  message: joi.string().min(10).max(1000).trim().required(),
+  rating: joi.number().integer().min(1).max(5).required(),
+});
+
+const updateFeedbackSchema = joi.object({
+  type: joi.string().valid("bug", "feature", "improvement", "other"),
+  subject: joi.string().min(5).max(100).trim(),
+  message: joi.string().min(10).max(1000).trim(),
+  rating: joi.number().integer().min(1).max(5),
+}).min(1);
 
 module.exports = {
   registerSchema,
@@ -65,4 +79,6 @@ module.exports = {
   changPass,
   changePassSchema,
   mailSchema,
+  createFeedbackSchema,
+  updateFeedbackSchema,
 };
