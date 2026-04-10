@@ -14,6 +14,7 @@ const {
   listGithubRepos,
   selectRepos,
   fetchTrialStatus,
+  fetchDeveloperActivity,
 } = require("../services/github.service");
 const { verifyGitHubWebhook } = require("../utils/github.webhook.helper");
 const TaskActivity = require("../../auth/schemas/taskActivity.schema");
@@ -163,4 +164,22 @@ const handleWebhook = async (req, res, next) => {
   }
 };
 
-module.exports = { linkAccount, listRepos, selectReposHandler, trialStatus, handleWebhook };
+// ─── GET /github/activity ─────────────────────────────────────────────────────
+/**
+ * Agent 3: Returns live GitHub events for the developer's linked repositories.
+ */
+const trialActivity = async (req, res, next) => {
+  try {
+    const developerId = req.user._id.toString();
+    const activity = await fetchDeveloperActivity(developerId);
+    
+    res.status(200).json({
+      message: "Activity fetched successfully.",
+      data: activity,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = { linkAccount, listRepos, selectReposHandler, trialStatus, handleWebhook, trialActivity };

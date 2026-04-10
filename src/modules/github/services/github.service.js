@@ -250,6 +250,71 @@ const fetchTrialStatus = async (developerId) => {
   };
 };
 
+/**
+ * Fetches recent activity from GitHub for the developer's linked repositories.
+ */
+const fetchDeveloperActivity = async (developerId) => {
+  const slice = await getGithubSlice(developerId);
+  if (!slice || !slice.github || !slice.github.githubToken) {
+    return []; // No linked github
+  }
+
+  const { githubToken, githubLogin, linkedRepos } = slice.github;
+  if (!githubLogin || !linkedRepos || linkedRepos.length === 0) return [];
+
+  const rawToken = decryptToken(githubToken);
+  if (!rawToken) return [];
+
+  try {
+    const { data } = await axios.get(`https://api.github.com/users/${githubLogin}/events/public`, {
+      headers: {
+        Authorization: `Bearer ${rawToken}`,
+        "User-Agent": "DevTracker-API",
+      },
+      params: { per_page: 50 },
+    });
+
+    const linkedRepoNames = new Set(linkedRepos.map(r => r.fullName));
+    
+    // Filter and format the events
+    return data
+      .filter(event => 
+        (event.type === 'PushEvent' || event.type === 'PullRequestEvent' || event.type === 'IssuesEvent') &&
+        linkedRepoNames.has(event.repo?.name)
+      )
+      .slice(0, 15) // top 15 events
+      .map(event => {
+        let type = 'push';
+        let message = 'Committed code';
+        
+        if (event.type === 'PushEvent') {
+          type = 'push';
+          message = event.payload.commits && event.payload.commits.length > 0 
+            ? event.payload.commits[0].message.split('\n')[0] 
+            : 'Pushed commits';
+        } else if (event.type === 'PullRequestEvent') {
+          type = 'pull_request';
+          const action = event.payload.action;
+          message = `${action.charAt(0).toUpperCase() + action.slice(1)} PR: ${event.payload.pull_request?.title || ''}`;
+        } else if (event.type === 'IssuesEvent') {
+          type = 'issues';
+          const action = event.payload.action;
+          message = `${action.charAt(0).toUpperCase() + action.slice(1)} issue: ${event.payload.issue?.title || ''}`;
+        }
+
+        return {
+          type,
+          repoFullName: event.repo.name,
+          message,
+          createdAt: event.created_at,
+        };
+      });
+  } catch (error) {
+    console.error("[fetchDeveloperActivity] Error fetching GitHub events:", error.message);
+    return [];
+  }
+};
+
 module.exports = {
   linkGithubAccount,
   listGithubRepos,
@@ -257,4 +322,5 @@ module.exports = {
   fetchTrialStatus,
   exchangeCodeForToken, // exported for OAuth redirect flow
   fetchGithubProfile,
+  fetchDeveloperActivity,
 };

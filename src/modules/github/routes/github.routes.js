@@ -19,6 +19,7 @@ const {
   selectReposHandler,
   trialStatus,
   handleWebhook,
+  trialActivity,
 } = require("../controllers/github.controller");
 
 const githubRouter = express.Router();
@@ -63,5 +64,11 @@ githubRouter.get("/repos", requireProAccess, listRepos);
  * Body: { repos: Array<{ repoId, name, fullName, private?, htmlUrl?, language? }> }
  */
 githubRouter.post("/select-repos", requireProAccess, selectReposHandler);
+
+/**
+ * GET /github/activity
+ * Returns Developer Activity log from GitHub APIs based on linked repos.
+ */
+githubRouter.get("/activity", requireProAccess, trialActivity);
 
 module.exports = githubRouter;
