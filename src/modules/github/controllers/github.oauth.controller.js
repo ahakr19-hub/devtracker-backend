@@ -44,6 +44,7 @@ const githubOAuthRedirect = (req, res, next) => {
       redirect_uri: process.env.GITHUB_CALLBACK_URL,
       scope:        SCOPES,
       state:        token, // stateless CSRF protection via JWT
+      prompt:       'login', // force GitHub login screen to avoid identity caching
     });
 
     const githubUrl = `https://github.com/login/oauth/authorize?${params.toString()}`;

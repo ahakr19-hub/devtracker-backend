@@ -15,6 +15,7 @@ const ApiError = require("../../../utils/apiErrors");
 const { encryptToken, decryptToken } = require("../../../utils/crypto.helper");
 const { startProTrial, getTrialStatus } = require("../../../utils/trial.helper");
 const {
+  findByGithubId,
   findByEmail,
   updateGithubData,
   setLinkedRepos,
@@ -86,7 +87,14 @@ const linkGithubAccount = async (developerId, code) => {
   const ghProfile = await fetchGithubProfile(rawToken);
   const { id: githubId, login: githubLogin } = ghProfile;
 
-  // Step 3 was removed: Allow multiple DevTracker accounts to link to the same GitHub account
+  // Step 3 — Check if this GitHub account is already linked to ANOTHER user
+  const existing = await findByGithubId(githubId);
+  if (existing && existing._id.toString() !== developerId) {
+    throw new ApiError(
+      400,
+      "This GitHub account is already linked to another user"
+    );
+  }
 
   // Step 4 — Load the current developer document
   const developer = await Developer.findById(developerId);
