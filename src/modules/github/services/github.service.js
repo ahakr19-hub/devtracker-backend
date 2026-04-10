@@ -1,0 +1,267 @@
+/**
+ * github.service.js
+ * Agent 1 + Agent 2 + Agent 3 — Core GitHub business logic.
+ *
+ * Responsibilities:
+ *  - Exchange OAuth code for access_token (Agent 1)
+ *  - Link GitHub account to existing DevTracker user (Agent 1)
+ *  - Activate the 30-day Pro trial on first link (Agent 2)
+ *  - Fetch & cache repos from GitHub API (Agent 3)
+ *  - Select repos + persist to linkedRepos (Agent 3)
+ *  - Compute trial status for the UI banner (Agent 2)
+ */
+const axios = require("axios");
+const ApiError = require("../../../utils/apiErrors");
+const { encryptToken, decryptToken } = require("../../../utils/crypto.helper");
+const { startProTrial, getTrialStatus } = require("../../../utils/trial.helper");
+const {
+  findByGithubId,
+  findByEmail,
+  updateGithubData,
+  setLinkedRepos,
+  getGithubSlice,
+} = require("../repositories/github.repository");
+const Developer = require("../../auth/schemas/developer.schema");
+
+// ─── In-memory cache for repo lists ──────────────────────────────────────────
+// Lightweight Map cache: key = developerId, value = { data, expiresAt }
+// TTL: 5 minutes — good balance between freshness and API rate limits.
+const repoCache = new Map();
+const REPO_CACHE_TTL_MS = 5 * 60 * 1000;
+
+// ─── Agent 1: OAuth Token Exchange ───────────────────────────────────────────
+
+/**
+ * Exchanges a GitHub OAuth `code` for an access_token.
+ * @param {string} code  - Short-lived code from GitHub redirect
+ * @returns {Promise<string>} Raw GitHub access token
+ */
+const exchangeCodeForToken = async (code) => {
+  const response = await axios.post(
+    "https://github.com/login/oauth/access_token",
+    {
+      client_id:     process.env.GITHUB_CLIENT_ID,
+      client_secret: process.env.GITHUB_CLIENT_SECRET,
+      code,
+    },
+    { headers: { Accept: "application/json" } }
+  );
+
+  const accessToken = response.data.access_token;
+  if (!accessToken) {
+    throw new ApiError(401, "GitHub code exchange failed — invalid or expired code.");
+  }
+  return accessToken;
+};
+
+/**
+ * Fetches the authenticated GitHub user's profile.
+ * @param {string} accessToken
+ * @returns {Promise<object>} GitHub user object { id, login, name, email, avatar_url }
+ */
+const fetchGithubProfile = async (accessToken) => {
+  const { data } = await axios.get("https://api.github.com/user", {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "User-Agent":  "DevTracker-API",
+    },
+  });
+  return data;
+};
+
+// ─── Agent 1 + Agent 2: Link GitHub Account + Start Trial ────────────────────
+
+/**
+ * Links a GitHub account to an existing DevTracker user.
+ * Activates the 30-day Pro trial on first-time linkage (idempotent).
+ *
+ * @param {string} developerId  - The authenticated DevTracker user's _id
+ * @param {string} code         - GitHub OAuth code
+ * @returns {Promise<{ trialStarted: boolean, proTrialEndDate: Date }>}
+ */
+const linkGithubAccount = async (developerId, code) => {
+  // Step 1 — Exchange code for token
+  const rawToken = await exchangeCodeForToken(code);
+
+  // Step 2 — Fetch GitHub profile
+  const ghProfile = await fetchGithubProfile(rawToken);
+  const { id: githubId, login: githubLogin } = ghProfile;
+
+  // Step 3 — Check if this GitHub account is already linked to ANOTHER user
+  const existing = await findByGithubId(githubId);
+  if (existing && existing._id.toString() !== developerId) {
+    throw new ApiError(
+      409,
+      "This GitHub account is already linked to another DevTracker account."
+    );
+  }
+
+  // Step 4 — Load the current developer document
+  const developer = await Developer.findById(developerId);
+  if (!developer) throw new ApiError(404, "Developer not found.");
+
+  // Step 5 — Activate trial if this is the first GitHub link
+  const trialStarted = startProTrial(developer); // Agent 2 helper — idempotent
+
+  // Step 6 — Encrypt the token using the CryptoService before persisting
+  const encryptedToken = encryptToken(rawToken);
+
+  // Step 7 — Persist all GitHub data atomically
+  developer.github = {
+    ...developer.github.toObject(),
+    githubId:          String(githubId),
+    githubToken:       encryptedToken,
+    githubLogin,
+    isPro:             developer.github.isPro || false,
+    proTrialStartDate: developer.github.proTrialStartDate,
+    proTrialEndDate:   developer.github.proTrialEndDate,
+  };
+
+  await developer.save();
+
+  return {
+    trialStarted,
+    proTrialEndDate: developer.github.proTrialEndDate,
+    githubLogin,
+  };
+};
+
+// ─── Agent 3: Repos — Fetch (with cache) ─────────────────────────────────────
+
+/**
+ * Lists the authenticated user's GitHub repositories.
+ * Results are cached per-developer for REPO_CACHE_TTL_MS (5 min).
+ *
+ * @param {string} developerId  - DevTracker user _id
+ * @returns {Promise<Array>} Array of simplified repo objects
+ */
+const listGithubRepos = async (developerId) => {
+  // ── Cache hit ──────────────────────────────────────────────────────────────
+  const cached = repoCache.get(developerId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data;
+  }
+
+  // ── Retrieve + decrypt stored token ────────────────────────────────────────
+  const slice = await getGithubSlice(developerId);
+  if (!slice || !slice.github || !slice.github.githubToken) {
+    throw new ApiError(400, "GitHub account not linked. Please link your GitHub first.");
+  }
+
+  const rawToken = decryptToken(slice.github.githubToken);
+  if (!rawToken) {
+    throw new ApiError(500, "Failed to decrypt GitHub token — token may be corrupted. Please re-link your account.");
+  }
+
+  // ── Call GitHub API — paginate up to 200 repos ────────────────────────────
+  let repos = [];
+  let page = 1;
+  const perPage = 100;
+
+  while (true) {
+    const { data } = await axios.get("https://api.github.com/user/repos", {
+      headers: {
+        Authorization: `Bearer ${rawToken}`,
+        "User-Agent":  "DevTracker-API",
+      },
+      params: { per_page: perPage, page, sort: "updated", affiliation: "owner" },
+    });
+
+    repos = repos.concat(data);
+    if (data.length < perPage) break; // last page
+    page++;
+    if (page > 2) break;             // cap at 200 repos for performance
+  }
+
+  // ── Shape response — only expose what the frontend needs ──────────────────
+  const shaped = repos.map((r) => ({
+    repoId:      r.id,
+    name:        r.name,
+    fullName:    r.full_name,
+    private:     r.private,
+    htmlUrl:     r.html_url,
+    description: r.description,
+    language:    r.language,
+    stars:       r.stargazers_count,
+    updatedAt:   r.updated_at,
+  }));
+
+  // ── Populate cache ─────────────────────────────────────────────────────────
+  repoCache.set(developerId, { data: shaped, expiresAt: Date.now() + REPO_CACHE_TTL_MS });
+
+  return shaped;
+};
+
+// ─── Agent 3: Select Repos ────────────────────────────────────────────────────
+
+/**
+ * Stores the user's selected repos in linkedRepos.
+ * Replaces the entire linked-repos list — frontend sends the full desired set.
+ *
+ * @param {string} developerId
+ * @param {Array<object>} repos  - Array of { repoId, name, fullName, private, htmlUrl, language }
+ * @returns {Promise<Array>} Updated linkedRepos
+ */
+const selectRepos = async (developerId, repos) => {
+  if (!Array.isArray(repos) || repos.length === 0) {
+    throw new ApiError(400, "repos must be a non-empty array.");
+  }
+
+  // Validate required fields on each repo entry
+  const validated = repos.map((r) => {
+    if (!r.repoId || !r.name || !r.fullName) {
+      throw new ApiError(
+        400,
+        `Each repo must include repoId, name, and fullName. Invalid entry: ${JSON.stringify(r)}`
+      );
+    }
+    return {
+      repoId:   Number(r.repoId),
+      name:     String(r.name),
+      fullName: String(r.fullName),
+      private:  Boolean(r.private),
+      htmlUrl:  r.htmlUrl || "",
+      language: r.language || null,
+    };
+  });
+
+  const updated = await setLinkedRepos(developerId, validated);
+  if (!updated) throw new ApiError(404, "Developer not found.");
+
+  return updated.github.linkedRepos;
+};
+
+// ─── Agent 2: Trial Status ────────────────────────────────────────────────────
+
+/**
+ * Returns trial status for the UI banner.
+ * @param {string} developerId
+ * @returns {Promise<{ isPro, active, daysRemaining, endsAt, githubLogin }>}
+ */
+const fetchTrialStatus = async (developerId) => {
+  const slice = await getGithubSlice(developerId);
+  if (!slice || !slice.github) {
+    return { isPro: false, active: false, daysRemaining: 0, endsAt: null, githubLinked: false };
+  }
+
+  const { isPro, proTrialEndDate, githubId, githubLogin } = slice.github;
+  const { active, daysRemaining, endsAt } = getTrialStatus(proTrialEndDate);
+
+  return {
+    isPro:        isPro || false,
+    githubLinked: !!githubId,
+    githubLogin:  githubLogin || null,
+    active,
+    daysRemaining,
+    endsAt,
+  };
+};
+
+module.exports = {
+  linkGithubAccount,
+  listGithubRepos,
+  selectRepos,
+  fetchTrialStatus,
+  exchangeCodeForToken, // exported for OAuth redirect flow
+  fetchGithubProfile,
+};

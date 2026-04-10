@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { githubEmbeddedSchema } = require("./github.embedded.schema");
 
 const developerSchema = new mongoose.Schema(
   {
@@ -57,6 +58,9 @@ const developerSchema = new mongoose.Schema(
       type: Number,
       default: 0
     },
+
+    // ── GitHub Integration ────────────────────────────────────────────────
+    github: { type: githubEmbeddedSchema, default: () => ({}) },
     // ------------------------------------------
 
     resetOTP: { type: String },
@@ -91,5 +95,8 @@ const developerSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// ── Indexes ───────────────────────────────────────────────────────────────────
+// Sparse so docs without a githubId don't consume index space
+developerSchema.index({ "github.githubId": 1 }, { sparse: true });
 
 module.exports = mongoose.model("Developer", developerSchema, "developers");

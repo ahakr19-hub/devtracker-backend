@@ -14,6 +14,7 @@ const { developerRouter } = require("./modules/auth/routes/developer.routes");
 const { invitaionsRouter } = require("./modules/auth/routes/invitations.routes");
 const subscriptionRouter = require("./modules/subscriptions/routes/subscription.routes");
 const feedbackRouter = require("./modules/feedbacks/routers/feedback.routes");
+const githubRouter = require("./modules/github/routes/github.routes");
 require('./utils/taskQueue');
 
 const app = express();
@@ -96,6 +97,13 @@ app.use('/developerSettings', developerRouter);
 app.use('/invitations', invitaionsRouter);
 app.use('/subscribe', subscriptionRouter);
 app.use('/feedbacks', feedbackRouter);
+
+// ── Agent 3: GitHub Integration Routes ──────────────────────────────────────────
+// POST /github/link           → link GitHub account + activate 30-day trial (protect only)
+// GET  /github/trial-status   → UI banner data (protect only)
+// GET  /github/repos          → list repos (protect + requireProAccess)
+// POST /github/select-repos   → persist repo selection (protect + requireProAccess)
+app.use('/github', githubRouter);
 
 app.use(errorMiddleware);
 
