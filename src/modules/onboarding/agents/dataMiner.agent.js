@@ -114,13 +114,52 @@ const _extractReadmeSummary = (rawContent) => {
  * @returns {Promise<DBData>}
  */
 const _mineDatabase = async (projectId, newMemberId) => {
-  const [project, firstTask, newMember] = await Promise.all([
+  // ── Parallel: project doc, first task, newcomer profile, task stats, team size ──
+  const [project, firstTask, newMember, taskAggResult, teamSizeResult] = await Promise.all([
     Project.findById(projectId).lean(),
+
     Task.findOne({ project: projectId, status: { $ne: "done" } })
       .sort({ createdAt: 1 })
       .lean(),
+
     Developer.findById(newMemberId).select("name email github").lean(),
+
+    // Aggregate real task counts for the project snapshot
+    Task.aggregate([
+      { $match: { project: new (require("mongoose").Types.ObjectId)(projectId) } },
+      {
+        $group: {
+          _id: null,
+          totalTasks:     { $sum: 1 },
+          activeTasks:    { $sum: { $cond: [{ $eq: ["$status", "in-progress"] }, 1, 0] } },
+          completedTasks: { $sum: { $cond: [{ $eq: ["$status", "done"] },        1, 0] } },
+        },
+      },
+    ]),
+
+    // Count team members (devs whose teams[] links to this project's owner)
+    // We resolve the owner id after fetching the project, so we use a deferred approach:
+    // Step A: fetch owner id from project; Step B: count devs in that team.
+    // We chain this as an async IIFE so it stays parallel with the others.
+    (async () => {
+      const proj = await Project.findById(projectId).select("owner").lean();
+      if (!proj?.owner) return 1; // at minimum the owner counts
+      const memberCount = await Developer.countDocuments({
+        "teams.adminId": proj.owner,
+      });
+      return memberCount + 1; // +1 for the owner themselves
+    })(),
   ]);
+
+  // ── Compute completion percentage from aggregate results ─────────────────────
+  const aggRow = taskAggResult?.[0] || {};
+  const totalTasks     = aggRow.totalTasks     || 0;
+  const activeTasks    = aggRow.activeTasks    || 0;
+  const completedTasks = aggRow.completedTasks || 0;
+  const completionPercentage =
+    totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+  const teamSize = typeof teamSizeResult === "number" ? teamSizeResult : 1;
 
   return {
     project: project
@@ -152,6 +191,9 @@ const _mineDatabase = async (projectId, newMemberId) => {
           githubToken: newMember.github?.githubToken || null,
         }
       : null,
+    // ── ✅ Real task stats ────────────────────────────────────────────────────
+    taskStats: { totalTasks, activeTasks, completedTasks, completionPercentage },
+    teamSize,
   };
 };
 

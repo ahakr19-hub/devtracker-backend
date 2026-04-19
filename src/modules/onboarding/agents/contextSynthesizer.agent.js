@@ -205,6 +205,8 @@ const runContextSynthesizer = (rawData) => {
     activeRepos = [],
     githubSuccess,
     githubError,
+    taskStats = {},
+    teamSize = 1,
   } = rawData;
 
   // ── 1. Categorize the tech stack ──────────────────────────────────────────
@@ -255,6 +257,14 @@ const runContextSynthesizer = (rawData) => {
           urgency: taskUrgency,
         }
       : null,
+    // ── ✅ Real project stats from DB ───────────────────────────────────────
+    projectStats: {
+      totalTasks:           taskStats.totalTasks           || 0,
+      activeTasks:          taskStats.activeTasks          || 0,
+      completedTasks:       taskStats.completedTasks       || 0,
+      completionPercentage: taskStats.completionPercentage || 0,
+      teamSize:             teamSize                       || 1,
+    },
     dataSourceFlags: {
       githubAvailable: githubSuccess,
       githubError: githubError || null,

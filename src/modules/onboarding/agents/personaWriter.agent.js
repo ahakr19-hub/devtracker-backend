@@ -122,6 +122,7 @@ const _buildUserPrompt = (brief) => {
     priorityFiles,
     firstTask,
     dataSourceFlags,
+    projectStats = {},
   } = brief;
 
   // Format tech stack for readability
@@ -183,6 +184,15 @@ PROJECT CONTEXT
   Status: ${project.status}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PROJECT STATS (use these EXACT numbers in projectSnapshot — do not invent values)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Total Tasks:          ${projectStats.totalTasks ?? 0}
+  Active (in-progress): ${projectStats.activeTasks ?? 0}
+  Completed:            ${projectStats.completedTasks ?? 0}
+  Completion:           ${projectStats.completionPercentage ?? 0}%
+  Team Size:            ${projectStats.teamSize ?? 1} developer(s)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 TECH STACK (categorized)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${stackSummary || "  Stack data unavailable."}
@@ -227,7 +237,7 @@ Now generate the onboarding message JSON as specified. Remember: signal over noi
  * @returns {Object} Fallback message object
  */
 const _buildFallbackMessage = (brief) => {
-  const { developer, project, priorityFiles, firstTask, techStackMap } = brief;
+  const { developer, project, priorityFiles, firstTask, techStackMap, projectStats = {} } = brief;
   const topCategories = Object.keys(techStackMap).slice(0, 3).join(", ");
   const flatStack = brief.techStackFlat || [];
 
@@ -237,11 +247,12 @@ const _buildFallbackMessage = (brief) => {
     projectSnapshot: {
       projectName: project.name,
       summary: `${project.name} is a ${project.status} project ${project.clientName ? `for ${project.clientName}` : ""}. The stack runs on ${topCategories || "a modern backend stack"}. ${project.description || ""}`,
-      totalTasks: 0,
-      activeTasks: 0,
-      completedTasks: 0,
-      completionPercentage: 0,
-      teamSize: 0,
+      // ✅ Use real stats from DB — never hardcode zeros
+      totalTasks:           projectStats.totalTasks           || 0,
+      activeTasks:          projectStats.activeTasks          || 0,
+      completedTasks:       projectStats.completedTasks       || 0,
+      completionPercentage: projectStats.completionPercentage || 0,
+      teamSize:             projectStats.teamSize             || 1,
       techStack: flatStack
     },
     priorityFiles: priorityFiles.slice(0, 4).map((f) => ({
