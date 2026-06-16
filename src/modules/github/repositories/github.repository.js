@@ -44,7 +44,7 @@ const setLinkedRepos = (developerId, repos) =>
  */
 const getGithubSlice = (developerId) =>
   Developer.findById(developerId)
-    .select("github")
+    .select("github subscription")
     .lean();
 
 module.exports = {

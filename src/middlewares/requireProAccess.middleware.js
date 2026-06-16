@@ -23,8 +23,9 @@ const requireProAccess = (req, res, next) => {
 
   const github = user.github || {};
 
-  // ── Gate 1: Paid Pro subscriber (checked first per spec) ──────────────────
-  if (github.isPro === true) {
+  // ── Gate 1: Paid Pro subscriber — checks the actual subscription field ──────
+  // set by the Stripe/Paymob webhook after a confirmed payment.
+  if (user.subscription?.isPremium === true) {
     return next();
   }
 

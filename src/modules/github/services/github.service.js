@@ -305,11 +305,15 @@ const fetchTrialStatus = async (developerId) => {
     return { isPro: false, active: false, daysRemaining: 0, endsAt: null, githubLinked: false };
   }
 
-  const { isPro, proTrialEndDate, githubId, githubLogin, linkedRepos } = slice.github;
+  const { proTrialEndDate, githubId, githubLogin, linkedRepos } = slice.github;
   const { active, daysRemaining, endsAt } = getTrialStatus(proTrialEndDate);
 
+  // isPro is true if the user has a paid subscription OR an active trial
+  const isPremium = slice.subscription?.isPremium === true;
+
   return {
-    isPro: isPro || false,
+    isPro: isPremium || active,          // true for both paid users and active trials
+    isPremium,                            // true ONLY for paid subscribers
     githubLinked: !!githubId,
     githubLogin: githubLogin || null,
     active,
