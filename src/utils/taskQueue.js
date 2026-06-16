@@ -8,6 +8,7 @@ const connection = {
   port: process.env.REDIS_PORT ? parseInt(process.env.REDIS_PORT, 10) : 6379,
   password: process.env.REDIS_PASSWORD || undefined,
   maxRetriesPerRequest: null, // Required by BullMQ
+  connectTimeout: 10000,
   reconnectOnError(err) {
     if (err.message.includes('limit exceeded')) {
       console.error("🛑 BullMQ: Upstash limit exceeded detected. Aborting queue connections.");
@@ -15,8 +16,8 @@ const connection = {
     }
   },
   retryStrategy(times) {
-    if (times > 3) return null;
-    return Math.min(times * 1000, 3000);
+    // Keep retrying indefinitely, do not return null
+    return Math.min(times * 1000, 10000);
   }
 };
 
@@ -27,8 +28,16 @@ if (host.includes("upstash.io") || process.env.REDIS_TLS === 'true') {
 // 1. Queue for auto-completion (Delayed Jobs)
 const autoCompleteQueue = new Queue('autoCompleteQueue', { connection });
 
+autoCompleteQueue.on('error', (err) => {
+  console.error('Auto Complete Queue Error:', err.message);
+});
+
 // 2. Queue for synchronizing Redis task state to MongoDB safely in background
 const taskSyncQueue = new Queue('taskSyncQueue', { connection });
+
+taskSyncQueue.on('error', (err) => {
+  console.error('Task Sync Queue Error:', err.message);
+});
 
 // Auto Completion Worker
 // This runs when a task's timer expires

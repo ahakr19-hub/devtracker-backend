@@ -9,15 +9,19 @@ const options = {
   port,
   password,
   maxRetriesPerRequest: null,
+  connectTimeout: 10000,
   reconnectOnError(err) {
     if (err.message.includes('limit exceeded')) {
       console.error("🛑 Upstash limit exceeded detected. Banning further connection attempts.");
-      return 2; // Magic value in ioredis to completely abort connection
+      // By returning 2, we abort the connection entirely.
+      // This will emit an error, which we catch via redis.on("error")
+      return 2; 
     }
   },
   retryStrategy(times) {
-    if (times > 3) return null;
-    return Math.min(times * 1000, 3000);
+    // Never return null, as that causes terminal errors that might crash the app if uncaught by BullMQ.
+    // Instead, cap the backoff at 10 seconds.
+    return Math.min(times * 1000, 10000);
   }
 };
 

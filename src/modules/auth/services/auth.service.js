@@ -106,13 +106,13 @@ const googleLoginDev = async (idToken) => {
       // إذا كان مستخدم جديد، ننشئ حساب بكلمة سر عشوائية
       const randomPassword = Math.random().toString(36).slice(-10);
       const hashedPassword = await bcrypt.hash(randomPassword, 10);
-      
+
       developer = await Developer.create({
         name,
         email,
         password: hashedPassword,
         isVerified: true,
-        subscription: {} 
+        subscription: {}
       });
     }
 
@@ -165,7 +165,7 @@ const githubLoginDev = async (code) => {
         email: userEmail,
         password: hashedPassword,
         isVerified: true, // جيتهاب موثق الحساب
-        subscription:{}
+        subscription: {}
       });
     }
 
@@ -192,6 +192,7 @@ const logindev = async (email, password) => {
     { expiresIn: "24h" },
   );
   return { developer, token };
+
 };
 
 const forgotPasswordDev = async (email) => {
@@ -238,7 +239,7 @@ const changeDeveloperPassword = async (email, otp, newPassword) => {
   if (!isValidOtp) {
     throw new ApiError(401, "Invalid OTP");
   }
-    const saltt = await bcrypt.genSalt(10);
+  const saltt = await bcrypt.genSalt(10);
   user.password = await bcrypt.hash(newPassword, saltt);
   user.resetOTP = null;
   user.resetOTPExpires = null;
@@ -246,4 +247,4 @@ const changeDeveloperPassword = async (email, otp, newPassword) => {
   return { message: "Password changed successfully" };
 };
 
-module.exports = { registerdev, logindev, otpToCreatAcc, forgotPasswordDev , changeDeveloperPassword , googleLoginDev , githubLoginDev };
+module.exports = { registerdev, logindev, otpToCreatAcc, forgotPasswordDev, changeDeveloperPassword, googleLoginDev, githubLoginDev };
