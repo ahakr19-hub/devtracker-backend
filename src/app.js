@@ -23,7 +23,8 @@ const port = process.env.PORT || 3000;
 
 const ALLOWED_ORIGINS = [
   "http://localhost:4200",
-  "https://extraordinary-tartufo-5bfdd1.netlify.app",
+  "https://strong-tartufo-f65dca.netlify.app",       // ← actual production frontend
+  "https://extraordinary-tartufo-5bfdd1.netlify.app", // ← previous/alternate frontend
   "https://dev-tracker-production-3ef3.up.railway.app",
 ];
 
