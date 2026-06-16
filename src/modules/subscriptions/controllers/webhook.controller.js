@@ -6,21 +6,31 @@ exports.handleStripeWebhook = async (req, res, next) => {
   const signature = req.headers['stripe-signature'];
   let event;
 
+  console.log(">>> [Stripe Webhook] Received request headers:", JSON.stringify(req.headers));
+  console.log(">>> [Stripe Webhook] Is req.body a Buffer?:", Buffer.isBuffer(req.body), "Type of req.body:", typeof req.body);
+
   // 1. تحويل الـ Body من Buffer لـ JSON (عشان Postman يشتغل)
   let rawBody = req.body;
   if (Buffer.isBuffer(req.body)) {
-    rawBody = JSON.parse(req.body.toString());
+    try {
+      rawBody = JSON.parse(req.body.toString());
+      console.log(">>> [Stripe Webhook] Successfully parsed raw body to JSON.");
+    } catch (e) {
+      console.error(">>> [Stripe Webhook] Failed to parse raw body Buffer to JSON:", e.message);
+    }
   }
 
   // 2. تخطي التوقيع للتجربة اليدوية أو في حال عدم وجوده
   if (!signature) {
-    console.log("⚠️ Warning: No Signature found, bypassing for testing...");
+    console.log("⚠️ Warning: No Stripe Signature found, bypassing for testing...");
     event = rawBody; // استخدم الـ Body اللي حولناه فوق
   } else {
     try {
+      console.log(">>> [Stripe Webhook] Attempting signature verification...");
       event = stripeService.constructWebhookEvent(req.body, signature);
+      console.log("✅ [Stripe Webhook] Signature verified successfully! Event Type:", event.type);
     } catch (err) {
-      console.log(`❌ Webhook Signature Verification Error: ${err.message}`);
+      console.error(`❌ [Stripe Webhook] Signature Verification Error: ${err.message}`);
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
   }
@@ -36,27 +46,31 @@ exports.handleStripeWebhook = async (req, res, next) => {
       const planId = session.metadata?.planId;
       const stripeCustomerId = session.customer;
 
-      console.log(">>> [Webhook] Event Received!");
-      console.log("Metadata:", session.metadata);
+      console.log(">>> [Stripe Webhook] checkout.session.completed processing...");
+      console.log("Metadata:", JSON.stringify(session.metadata));
+      console.log("Client Reference ID (clientId):", clientId);
       console.log("Customer ID:", stripeCustomerId);
 
       let developer = null;
 
       // 2. البحث عن المطور بأكثر من طريقة عشان لو بتجرب من Postman أو CLI
       if (metadataDeveloperId) {
+        console.log(">>> Searching developer by metadataDeveloperId:", metadataDeveloperId);
         developer = await Developer.findById(metadataDeveloperId);
       }
       if (!developer && clientId) {
+        console.log(">>> Searching developer by clientId:", clientId);
         developer = await Developer.findById(clientId);
       }
       if (!developer && stripeCustomerId) {
+        console.log(">>> Searching developer by stripeCustomerId:", stripeCustomerId);
         developer = await Developer.findOne({ "subscription.stripeCustomerId": stripeCustomerId });
       }
 
       // لو ملقيناش المطور خالص، نطلع إيرور ومكملش
       if (!developer) {
-        console.log(`❌ ERROR: Could not find Developer in DB! Metadata ID: ${metadataDeveloperId}, Customer ID: ${stripeCustomerId}`);
-        return res.status(200).json({ received: true });
+        console.error(`❌ ERROR: Could not find Developer in DB! Metadata ID: ${metadataDeveloperId}, Client ID: ${clientId}, Customer ID: ${stripeCustomerId}`);
+        return res.status(200).json({ received: true, error: "Developer not found" });
       }
 
       console.log("✅ Developer found in DB:", developer.email);
@@ -94,7 +108,7 @@ exports.handleStripeWebhook = async (req, res, next) => {
 
       console.log("🎉🎉🎉 SUCCESS: Developer updated perfectly in Atlas! isPremium:", developer.subscription.isPremium);
     } else {
-      console.log("ℹ️ Event received but not processed:", event?.type);
+      console.log("ℹ️ Event received but not processed (ignored event type):", event?.type);
     }
 
     res.status(200).json({ received: true });
