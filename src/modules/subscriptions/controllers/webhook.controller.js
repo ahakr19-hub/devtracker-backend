@@ -114,7 +114,7 @@ exports.handleStripeWebhook = async (req, res, next) => {
     res.status(200).json({ received: true });
   } catch (error) {
     console.error("Internal Error:", error);
-    res.status(500).send("Internal Error");
+    res.status(500).send("Internal Error"); 
   }
 };
 exports.handlePaymobWebhook = async (req, res, next) => {
