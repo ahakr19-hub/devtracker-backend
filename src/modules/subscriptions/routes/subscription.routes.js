@@ -8,6 +8,9 @@ const { protect } = require('../../../middlewares/auth.middleware');
 // Webhook Routes (MUST NOT use protect)
 // -------------------------------------------------------------
 
+// GET /subscribe/webhooks/health — verify Railway has the latest code + env vars
+router.get('/webhooks/health', webhookController.webhookHealth);
+
 // NOTE: Webhook for Stripe receives raw body processed by app.use() in app.js
 router.post(
   '/webhooks/stripe',
