@@ -5,6 +5,8 @@ const helmet = require("helmet");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const dbConnection = require("./config/db");
+
+// استدعاء الـ Routers
 const regRouter = require("./modules/auth/routes/auth.routes");
 const errorMiddleware = require("./middlewares/error.middleware");
 const { projectRouter } = require("./modules/auth/routes/project.routes");
@@ -23,21 +25,46 @@ const port = process.env.PORT || 3000;
 
 const ALLOWED_ORIGINS = [
   "http://localhost:4200",
-  "https://strong-tartufo-f65dca.netlify.app",       // ← actual production frontend
-  "https://extraordinary-tartufo-5bfdd1.netlify.app", // ← previous/alternate frontend
-  "https://dev-tracker-production-3ef3.up.railway.app",
+  "https://strong-tartufo-f65dca.netlify.app",        // ← الفرونت إند الحالي المتأكتف
+  "https://extraordinary-tartufo-5bfdd1.netlify.app",  // ← الفرونت إند البديل
+  "https://dev-tracker-production-3ef3.up.railway.app", // ← الدومين الجديد بتاع ريلواي نفسه
 ];
 
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: ALLOWED_ORIGINS,
-    methods: ["GET", "POST"],
-    credentials: true
-  }
-});
+// ==========================================
+// 1️⃣ أول خطوة: ميديليوير الـ CORS لازم يكون فوق خالص!
+// ==========================================
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS policy: origin '${origin}' not allowed`));
+    }
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"]
+}));
 
-// ✅ Middleware واحد بس — بيدي الـ webhook raw body والباقي json
+// ==========================================
+// 2️⃣ ثاني خطوة: ضبط الـ Helmet عشان يوافق على الـ WebSockets
+// ==========================================
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        // هنا بنقول لهلمت: وافق على اتصالات السوكيت اللي رايحة وجاية للدومينات دي
+        connectSrc: ["'self'", "wss://dev-tracker-production-3ef3.up.railway.app", "https://dev-tracker-production-3ef3.up.railway.app", "http://localhost:3000", "ws://localhost:3000"],
+        objectSrc: ["'none'"],
+        upgradeInsecureRequests: [],
+      },
+    },
+  })
+);
+
+// ✅ ميديليوير الـ webhook والـ json body لسه في مكانه
 app.use((req, res, next) => {
   if (req.originalUrl.includes('/webhooks/')) {
     express.raw({ type: 'application/json' })(req, res, next);
@@ -46,8 +73,24 @@ app.use((req, res, next) => {
   }
 });
 
+app.set('trust proxy', 1);
+
+// ==========================================
+// 3️⃣ إعداد سيرفر الـ HTTP والـ Socket.io
+// ==========================================
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: ALLOWED_ORIGINS,
+    methods: ["GET", "POST"],
+    credentials: true
+  },
+  allowEIO3: true // عشان لو فيه توافقية مع إصدارات قديمة من الـ Client
+});
+
 global.io = io;
 
+// الـ Authentication بتاع السوكيت
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
 
@@ -67,44 +110,20 @@ io.use((socket, next) => {
 io.on("connection", (socket) => {
   console.log(`User connected securely: ${socket.userId}`);
   socket.join(socket.userId.toString());
-  console.log(`User ${socket.userId} joined their private room`);
 
   socket.on("disconnect", () => {
     console.log(`User ${socket.userId} disconnected`);
   });
 });
 
-app.set('trust proxy', 1);
-
-app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, curl, etc.) or matching allowed list
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error(`CORS policy: origin '${origin}' not allowed`));
-    }
-  },
-  credentials: true
-}));
-
-app.use(
-  helmet({
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
-        objectSrc: ["'none'"],
-        upgradeInsecureRequests: [],
-      },
-    },
-  })
-);
-
+// الـ Base Route
 app.get("/", (req, res) => {
   res.json({ message: "Hello from secure socket server" });
 });
 
+// ==========================================
+// 4️⃣ الـ API Routes (جمعتهم تحت الميديليويرز الأساسية)
+// ==========================================
 app.use('/auth', regRouter);
 app.use('/developer', projectRouter);
 app.use('/project', taskRouter);
@@ -113,17 +132,13 @@ app.use('/developerSettings', developerRouter);
 app.use('/invitations', invitaionsRouter);
 app.use('/subscribe', subscriptionRouter);
 app.use('/feedbacks', feedbackRouter);
-
-// ── Agent 3: GitHub Integration Routes ──────────────────────────────────────────
-// POST /github/link           → link GitHub account + activate 30-day trial (protect only)
-// GET  /github/trial-status   → UI banner data (protect only)
-// GET  /github/repos          → list repos (protect + requireProAccess)
-// POST /github/select-repos   → persist repo selection (protect + requireProAccess)
 app.use('/github', githubRouter);
 app.use('/onboarding', onboardingRouter);
 
+// ميديليوير معالجة الأخطاء (بتاع الـ ApiError الكاستم بتاعك)
 app.use(errorMiddleware);
 
+// تشغيل السيرفر
 server.listen(port, () => {
   console.log(`Server running on port ${port} with SECURE Socket.io support`);
   console.log(`Allowed CORS origins: ${ALLOWED_ORIGINS.join(", ")}`);
