@@ -19,13 +19,20 @@ const { onboardingRouter } = require("./modules/onboarding/onboarding.routes");
 require('./utils/taskQueue');
 
 const app = express();
-const port = 4200;
+const port = process.env.PORT || 3000;
+
+const ALLOWED_ORIGINS = [
+  "http://localhost:4200",
+  "https://extraordinary-tartufo-5bfdd1.netlify.app",
+  "https://dev-tracker-production-3ef3.up.railway.app",
+];
 
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
+    origin: ALLOWED_ORIGINS,
+    methods: ["GET", "POST"],
+    credentials: true
   }
 });
 
@@ -69,7 +76,14 @@ io.on("connection", (socket) => {
 app.set('trust proxy', 1);
 
 app.use(cors({
-  origin: true,
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, etc.) or matching allowed list
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS policy: origin '${origin}' not allowed`));
+    }
+  },
   credentials: true
 }));
 
@@ -111,6 +125,7 @@ app.use(errorMiddleware);
 
 server.listen(port, () => {
   console.log(`Server running on port ${port} with SECURE Socket.io support`);
+  console.log(`Allowed CORS origins: ${ALLOWED_ORIGINS.join(", ")}`);
 });
 
 dbConnection();
