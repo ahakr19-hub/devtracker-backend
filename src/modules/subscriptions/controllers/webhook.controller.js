@@ -39,83 +39,18 @@ exports.handleStripeWebhook = async (req, res) => {
     }
   }
 
-  // ── Step 2: Only handle checkout.session.completed ──────────────────────────
-  if (!event || event.type !== 'checkout.session.completed') {
-    console.log('ℹ️ [Stripe] Ignored event type:', event?.type);
-    return res.status(200).json({ received: true, ignored: true });
-  }
-
-  // ── Step 3: Extract identifiers from the session ─────────────────────────────
+  // ── Step 2: Route to the correct event handler ──────────────────────────────
   try {
-    const session = event.data.object;
-    const metadataDeveloperId = session.metadata?.developerId;
-    const clientId            = session.client_reference_id;
-    const planId              = session.metadata?.planId;
-    const stripeCustomerId    = session.customer;
-    const stripeSubscriptionId = session.subscription;
+    if (event.type === 'checkout.session.completed') {
+      await handleCheckoutCompleted(event.data.object);
 
-    console.log('>>> [Stripe] Session metadata:', JSON.stringify(session.metadata));
-    console.log('>>> [Stripe] client_reference_id:', clientId, '| customer:', stripeCustomerId);
+    } else if (event.type === 'invoice.paid') {
+      await handleInvoicePaid(event.data.object);
 
-    // ── Step 4: Resolve the developer document ────────────────────────────────
-    let developerId = metadataDeveloperId || clientId;
-
-    if (!developerId && stripeCustomerId) {
-      // Last resort: look up by stored stripeCustomerId
-      const found = await Developer.findOne(
-        { 'subscription.stripeCustomerId': stripeCustomerId },
-        { _id: 1 }
-      ).lean();
-      if (found) developerId = found._id.toString();
+    } else {
+      console.log('ℹ️ [Stripe] Ignored event type:', event.type);
     }
 
-    if (!developerId) {
-      console.error('❌ [Stripe] Cannot resolve developer. metadataDeveloperId:', metadataDeveloperId, 'clientId:', clientId, 'stripeCustomerId:', stripeCustomerId);
-      return res.status(200).json({ received: true, error: 'developer_not_found' });
-    }
-
-    console.log('>>> [Stripe] Resolved developerId:', developerId);
-
-    // ── Step 5: Resolve plan tier & interval ──────────────────────────────────
-    let planTier     = 'pro';
-    let planInterval = 'monthly';
-
-    if (planId) {
-      const dbPlan = await Plan.findById(planId).lean();
-      if (dbPlan) {
-        planTier     = dbPlan.tier;
-        planInterval = dbPlan.interval;
-        console.log('✅ [Stripe] Plan resolved:', planTier, '/', planInterval);
-      } else {
-        console.warn('⚠️ [Stripe] planId not found in DB, defaulting to pro/monthly');
-      }
-    }
-
-    // ── Step 6: Atomic DB update — the ONLY correct way ──────────────────────
-    // findByIdAndUpdate with $set is atomic. It does NOT reload the full document
-    // into memory, so there is ZERO risk of a stale in-memory object overwriting
-    // fields that were set elsewhere (the race condition that existed before).
-    const updated = await Developer.findByIdAndUpdate(
-      developerId,
-      {
-        $set: {
-          'subscription.status':               'active',
-          'subscription.isPremium':            true,
-          'subscription.plan':                 planTier,
-          'subscription.stripeCustomerId':     stripeCustomerId,
-          'subscription.stripeSubscriptionId': stripeSubscriptionId,
-          'subscription.interval':             planInterval,
-        }
-      },
-      { new: true, runValidators: true }
-    );
-
-    if (!updated) {
-      console.error('❌ [Stripe] findByIdAndUpdate returned null for developerId:', developerId);
-      return res.status(200).json({ received: true, error: 'update_failed' });
-    }
-
-    console.log('🎉 [Stripe] SUCCESS — isPremium:', updated.subscription.isPremium, '| plan:', updated.subscription.plan, '| email:', updated.email);
     return res.status(200).json({ received: true });
 
   } catch (error) {
@@ -123,6 +58,92 @@ exports.handleStripeWebhook = async (req, res) => {
     return res.status(500).send('Internal Server Error');
   }
 };
+
+// ─── Helper: upgrade developer atomically ────────────────────────────────────
+async function upgradeDeveloper({ developerId, stripeCustomerId, stripeSubscriptionId, planId, source }) {
+  if (!developerId && stripeCustomerId) {
+    const found = await Developer.findOne(
+      { 'subscription.stripeCustomerId': stripeCustomerId },
+      { _id: 1 }
+    ).lean();
+    if (found) developerId = found._id.toString();
+  }
+
+  if (!developerId) {
+    console.error(`❌ [Stripe/${source}] Cannot resolve developer. customerId:`, stripeCustomerId);
+    return null;
+  }
+
+  let planTier = 'pro';
+  let planInterval = 'monthly';
+
+  if (planId) {
+    const dbPlan = await Plan.findById(planId).lean();
+    if (dbPlan) {
+      planTier     = dbPlan.tier;
+      planInterval = dbPlan.interval;
+      console.log(`✅ [Stripe/${source}] Plan resolved:`, planTier, '/', planInterval);
+    } else {
+      console.warn(`⚠️ [Stripe/${source}] planId not in DB, defaulting to pro/monthly`);
+    }
+  }
+
+  const updated = await Developer.findByIdAndUpdate(
+    developerId,
+    {
+      $set: {
+        'subscription.status':               'active',
+        'subscription.isPremium':            true,
+        'subscription.plan':                 planTier,
+        'subscription.stripeCustomerId':     stripeCustomerId,
+        'subscription.stripeSubscriptionId': stripeSubscriptionId,
+        'subscription.interval':             planInterval,
+      }
+    },
+    { new: true, runValidators: true }
+  );
+
+  if (!updated) {
+    console.error(`❌ [Stripe/${source}] findByIdAndUpdate returned null for developerId:`, developerId);
+    return null;
+  }
+
+  console.log(`🎉 [Stripe/${source}] SUCCESS — email: ${updated.email} | isPremium: ${updated.subscription.isPremium} | plan: ${updated.subscription.plan}`);
+  return updated;
+}
+
+// ─── Handler: checkout.session.completed ─────────────────────────────────────
+async function handleCheckoutCompleted(session) {
+  const developerId         = session.metadata?.developerId || session.client_reference_id;
+  const stripeCustomerId    = session.customer;
+  const stripeSubscriptionId = session.subscription;
+  const planId              = session.metadata?.planId;
+
+  console.log('>>> [Stripe/checkout.session.completed] metadata:', JSON.stringify(session.metadata));
+  console.log('>>> [Stripe/checkout.session.completed] customer:', stripeCustomerId, '| developerId:', developerId);
+
+  await upgradeDeveloper({ developerId, stripeCustomerId, stripeSubscriptionId, planId, source: 'checkout' });
+}
+
+// ─── Handler: invoice.paid ────────────────────────────────────────────────────
+// Fires on first subscription payment AND every renewal. Use stripeCustomerId
+// as the lookup key since there is no session metadata on invoice objects.
+async function handleInvoicePaid(invoice) {
+  // Only act on paid invoices for a subscription (not one-off charges)
+  if (invoice.billing_reason === 'manual') {
+    console.log('ℹ️ [Stripe/invoice.paid] Skipping manual invoice:', invoice.id);
+    return;
+  }
+
+  const stripeCustomerId     = invoice.customer;
+  const stripeSubscriptionId = invoice.subscription;
+
+  console.log('>>> [Stripe/invoice.paid] customer:', stripeCustomerId, '| subscription:', stripeSubscriptionId);
+
+  await upgradeDeveloper({ developerId: null, stripeCustomerId, stripeSubscriptionId, planId: null, source: 'invoice' });
+}
+
+
 exports.handlePaymobWebhook = async (req, res, next) => {
   try {
     const { obj } = req.body;
