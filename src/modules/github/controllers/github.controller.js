@@ -9,11 +9,12 @@
  *   POST /github/link           → linkAccount  (only protect, no trial gate)
  */
 const ApiError = require("../../../utils/apiErrors");
+// جوه github.controller.js فوق خالص
 const {
   linkGithubAccount,
   listGithubRepos,
   selectRepos,
-  fetchTrialStatus,
+  fetchTrialStatus: getGitHubTrialStatus, // غيرنا اسمها هنا لـ Alias ملوش علاقة بـ trialStatus بتاعة الـ controller
   fetchDeveloperActivity,
 } = require("../services/github.service");
 const { verifyGitHubWebhook } = require("../utils/github.webhook.helper");
@@ -125,7 +126,9 @@ const selectReposHandler = async (req, res, next) => {
 const trialStatus = async (req, res, next) => {
   try {
     const developerId = req.user._id.toString();
-    const status = await fetchTrialStatus(developerId);
+    
+    // ناديها بالاسم الجديد الحصين
+    const status = await getGitHubTrialStatus(developerId); 
 
     res.status(200).json({
       message: "Trial status retrieved.",
