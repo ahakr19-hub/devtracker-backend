@@ -130,6 +130,7 @@ const googleLoginDev = async (idToken) => {
 
 const githubLoginDev = async (code) => {
   try {
+    // 1. تبديل الـ Code بـ Access Token
     const tokenResponse = await axios.post(
       "https://github.com/login/oauth/access_token",
       {
@@ -143,33 +144,81 @@ const githubLoginDev = async (code) => {
     const accessToken = tokenResponse.data.access_token;
     if (!accessToken) throw new ApiError(401, "Invalid GitHub code or expired");
 
-    // 2. جلب بيانات المستخدم (Profile)
+    // 2. جلب بيانات البروفايل
     const userResponse = await axios.get("https://api.github.com/user", {
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: { Authorization: `Bearer ${accessToken}`, "User-Agent": "DevTracker-API" },
     });
 
-    const { name, email, login, id } = userResponse.data;
+    const { name, login, id } = userResponse.data;
+    let userEmail = userResponse.data.email;
 
-    // جيتهاب أحياناً مابيرجعش الـ email لو اليوزر عامله private
-    const userEmail = email || `${login}@github.com`;
+    // 🔥 حل مشكلة الـ Private Email: لو رجع null، اطلبه من الـ emails endpoint بالتحديد
+    if (!userEmail) {
+      try {
+        const emailsResponse = await axios.get("https://api.github.com/user/emails", {
+          headers: { Authorization: `Bearer ${accessToken}`, "User-Agent": "DevTracker-API" },
+        });
+        // هات الإيميل الـ primary والـ verified
+        const primaryEmailObj = emailsResponse.data.find(e => e.primary && e.verified);
+        userEmail = primaryEmailObj ? primaryEmailObj.email : emailsResponse.data[0]?.email;
+      } catch (e) {
+        console.error("Failed to fetch GitHub private emails:", e.message);
+      }
+    }
 
+    // fallback أخير لو مقفولة خالص
+    if (!userEmail) {
+      userEmail = `${login}@github.com`;
+    }
+
+    // 3. التشييك الذكي: هل المستخدم موجود بالإيميل ده فعلاً (سواء سجل بجوجل أو عادي قبل كده)؟
     let developer = await findUserByEmail(userEmail);
 
+    // تجهيز بيانات جيت هاب وتشفير التوكن عشان الفيتشرات الـ جوه الأبلكيشن متضربش
+    const { encryptToken } = require("../../../utils/crypto.helper"); // تأكد من المسار الصح عندك
+    const encryptedToken = encryptToken(accessToken);
+    
+    const githubData = {
+      githubId: String(id),
+      githubToken: encryptedToken,
+      githubLogin: login,
+    };
+
     if (!developer) {
-      // مستخدم جديد -> سجل بياناته
+      // مستخدم جديد تماماً -> كريت حسابه واربط جيت هاب فوراً
       const randomPassword = Math.random().toString(36).slice(-10);
       const hashedPassword = await bcrypt.hash(randomPassword, 10);
 
-      developer = await Developer.create({
+      // هنا بنعمل ونشغل الـ trial بالمرة لو أول مرة يربط جيت هاب
+      const { startProTrial } = require("../../../utils/trial.helper");
+
+      developer = new Developer({
         name: name || login,
         email: userEmail,
         password: hashedPassword,
-        isVerified: true, // جيتهاب موثق الحساب
-        subscription: {}
+        isVerified: true,
+        github: githubData
       });
+
+      startProTrial(developer); // تشغيل الـ 30 يوم الـ Pro للجديد
+      await developer.save();
+    } else {
+      // 🔥 دمج الحسابات (Account Merging): المستخدم مسجل بجوجل مثلاً، حدث بيانات جيت هاب جواه عشان ميتعملش أكونت تاني!
+      developer.github = {
+        ...developer.github?.toObject(),
+        ...githubData
+      };
+      
+      // لو معندوش trial شغاله شغلها له
+      if (!developer.github.proTrialEndDate) {
+        const { startProTrial } = require("../../../utils/trial.helper");
+        startProTrial(developer);
+      }
+
+      await developer.save();
     }
 
-    // 3. توقيع الـ JWT بتاع الـ DevTracker
+    // 4. توقيع الـ JWT بتاع الـ DevTracker للدخول
     const token = jwt.sign(
       { id: developer._id, email: developer.email, role: developer.role },
       process.env.JWT_SECRET,
@@ -178,7 +227,10 @@ const githubLoginDev = async (code) => {
 
     return { developer, token };
   } catch (error) {
-    throw new ApiError(401, "GitHub Authentication Failed");
+    // متبلعش الـ error الحقيقي عشان تعرف الدياجنوستكس في الـ logs
+    console.error("[GitHub Auth Error]:", error);
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(500, `GitHub Authentication Failed: ${error.message}`);
   }
 };
 const logindev = async (email, password) => {
