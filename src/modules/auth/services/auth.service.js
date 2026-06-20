@@ -227,7 +227,7 @@ const githubLoginDev = async (code) => {
 
     return { developer, token };
   } catch (error) {
-    // متبلعش الـ error الحقيقي عشان تعرف الدياجنوستكس في الـ logs
+
     console.error("[GitHub Auth Error]:", error);
     if (error instanceof ApiError) throw error;
     throw new ApiError(500, `GitHub Authentication Failed: ${error.message}`);

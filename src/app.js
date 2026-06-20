@@ -19,9 +19,12 @@ const feedbackRouter = require("./modules/feedbacks/routers/feedback.routes");
 const githubRouter = require("./modules/github/routes/github.routes");
 const { onboardingRouter } = require("./modules/onboarding/onboarding.routes");
 require('./utils/taskQueue');
+const cookieParser = require('cookie-parser');
 
 const app = express();
 const port = process.env.PORT || 3000;
+
+app.use(cookieParser());
 
 const ALLOWED_ORIGINS = [
   "http://localhost:4200",
