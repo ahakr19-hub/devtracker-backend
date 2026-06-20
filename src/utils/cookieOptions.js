@@ -47,38 +47,54 @@ const parseDurationToMs = (duration = "24h") => {
  * // cookie even after being redirected from the IdP domain.
  * res.cookie("token", token, getCookieOptions({ sameSite: "lax" }));
  */
-const getCookieOptions = (overrides = {}) => ({
-  /**
-   * httpOnly: true — The cookie is NEVER accessible via document.cookie.
-   * This is the single most important XSS mitigation for auth cookies.
-   */
-  httpOnly: true,
+const getCookieOptions = (overrides = {}) => {
+  const isProd = process.env.NODE_ENV === "production";
 
-  /**
-   * secure: true in production — Forces HTTPS transmission.
-   * During local development (http://localhost) this must be false or
-   * the browser will silently drop the cookie.
-   */
-  secure: process.env.NODE_ENV === "production",
+  return {
+    /**
+     * httpOnly: true — The cookie is NEVER accessible via document.cookie.
+     * This is the single most important XSS mitigation for auth cookies.
+     */
+    httpOnly: true,
 
-  /**
-   * sameSite: "lax" — Balances security and usability.
-   *  - Blocks the cookie from being sent on cross-site POST requests (CSRF mitigation).
-   *  - Still allows the cookie to be sent when a user navigates TO your site
-   *    via a top-level GET (which is exactly what OAuth IdP redirects do).
-   *  - "strict" would break OAuth redirects; "none" requires Secure:true and
-   *    opens CSRF risk, so "lax" is the right default for most SPAs.
-   */
-  sameSite: "lax",
+    /**
+     * secure — Must be true whenever sameSite is "none".
+     * Browsers REJECT SameSite=None cookies that are not also Secure.
+     * In local dev (http://localhost) we relax this to false because
+     * localhost is treated as a secure context by most browsers anyway.
+     */
+    secure: isProd,
 
-  /**
-   * maxAge — Matches the JWT expiry so the cookie and token die together.
-   * maxAge is in milliseconds in Express (unlike Set-Cookie header ms).
-   */
-  maxAge: parseDurationToMs(process.env.JWT_EXPIRES_IN || "24h"),
+    /**
+     * sameSite: "none" — REQUIRED for cross-origin cookie transmission.
+     *
+     * Your frontend (Netlify) and backend (Railway) are different origins.
+     * The browser's SameSite policy works like this:
+     *
+     *   "lax"    → cookie sent on same-origin + top-level GET navigations only.
+     *              ❌ Angular HttpClient (XHR/fetch) is a sub-resource request —
+     *                 the browser silently drops the cookie. → 401 on every call.
+     *
+     *   "none"   → cookie sent on ALL requests, including cross-origin XHR/fetch,
+     *              as long as withCredentials:true is set on the client AND
+     *              credentials:true is set on the server's CORS config.
+     *              ✅ This is what a cross-origin SPA needs.
+     *
+     * CSRF risk is mitigated by:
+     *  - CORS allowlist on the backend (no wildcard origin)
+     *  - Railway's HTTPS-only enforcement (Secure flag)
+     */
+    sameSite: isProd ? "none" : "lax",
 
-  // Spread caller overrides last so they can fine-tune per-route.
-  ...overrides,
-});
+    /**
+     * maxAge — Matches the JWT expiry so the cookie and token die together.
+     * maxAge is in milliseconds in Express.
+     */
+    maxAge: parseDurationToMs(process.env.JWT_EXPIRES_IN || "24h"),
+
+    // Spread caller overrides last so they can fine-tune per-route.
+    ...overrides,
+  };
+};
 
 module.exports = { getCookieOptions, parseDurationToMs };
