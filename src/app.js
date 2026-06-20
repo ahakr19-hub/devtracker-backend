@@ -91,9 +91,21 @@ const io = new Server(server, {
 
 global.io = io;
 
-// الـ Authentication بتاع السوكيت
+// ── Socket.io Authentication Middleware ───────────────────────────────────
+// Tokens now live in HttpOnly cookies. socket.handshake.headers.cookie
+// contains the raw "Cookie:" header forwarded by the browser when
+// withCredentials: true is set on the client. We parse it manually because
+// the Express cookie-parser middleware does NOT run on Socket.io handshakes.
 io.use((socket, next) => {
-  const token = socket.handshake.auth.token;
+  const cookieHeader = socket.handshake.headers.cookie || "";
+
+  // Parse: "token=abc123; other=xyz" → find the "token" entry
+  const tokenEntry = cookieHeader
+    .split(";")
+    .map(c => c.trim())
+    .find(c => c.startsWith("token="));
+
+  const token = tokenEntry ? tokenEntry.split("=")[1]?.trim() : null;
 
   if (!token) {
     return next(new Error("Authentication error: No token provided"));
