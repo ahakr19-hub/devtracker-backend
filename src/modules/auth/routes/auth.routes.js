@@ -2,6 +2,7 @@ const express = require("express");
 const { register, creatAccount } = require("../controllers/authcontrollers/register");
 const { login, googleLogin, githubLogin, logout } = require("../controllers/authcontrollers/login");
 const { protect } = require("../../../middlewares/auth.middleware");
+const { authLimiter } = require("../../../middlewares/rateLimit.middleware");
 const {
   githubOAuthRedirect,
   githubOAuthCallback,
@@ -9,14 +10,14 @@ const {
 
 const regRouter = express.Router();
 
-regRouter.post('/dev/register/registerdevs', register);
-regRouter.post('/dev/register/creatdevacc', creatAccount);
+// Auth limiter applied: max 10 requests per IP per 15 min on all sensitive auth endpoints
+regRouter.post('/dev/register/registerdevs', authLimiter, register);
+regRouter.post('/dev/register/creatdevacc',  authLimiter, creatAccount);
 
-regRouter.post('/dev/login/logindevs', login);
+regRouter.post('/dev/login/logindevs', authLimiter, login);
 
-
-regRouter.post("/google-login", googleLogin);
-regRouter.post("/github-login", githubLogin);
+regRouter.post("/google-login", authLimiter, googleLogin);
+regRouter.post("/github-login", authLimiter, githubLogin);
 
 // Logout — protect ensures only an authenticated session can trigger a logout,
 // preventing logout spam from unauthenticated bots.

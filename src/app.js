@@ -1,12 +1,28 @@
+// ── Load environment variables FIRST — before any other require or env access ──
+// Using __dirname makes this path relative to THIS FILE, not to wherever
+// the node/nodemon process was launched from. This is invocation-directory agnostic.
+const path = require("path");
+require("dotenv").config({ path: path.join(__dirname, "../config.env") });
+
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const helmet = require("helmet");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
+const mongoose = require("mongoose");
 const dbConnection = require("./config/db");
+const cookieParser = require('cookie-parser');
+const { globalLimiter } = require('./middlewares/rateLimit.middleware');
 
-// استدعاء الـ Routers
+// ── Startup guard — fail immediately if JWT_SECRET is not set ─────────────────
+// Prevents the silent fallback that lets any forged token authenticate.
+if (!process.env.JWT_SECRET) {
+  console.error('[FATAL] JWT_SECRET environment variable is not set. Aborting.');
+  process.exit(1);
+}
+
+// ── Routers ───────────────────────────────────────────────────────────────────
 const regRouter = require("./modules/auth/routes/auth.routes");
 const errorMiddleware = require("./middlewares/error.middleware");
 const { projectRouter } = require("./modules/auth/routes/project.routes");
@@ -18,8 +34,7 @@ const subscriptionRouter = require("./modules/subscriptions/routes/subscription.
 const feedbackRouter = require("./modules/feedbacks/routers/feedback.routes");
 const githubRouter = require("./modules/github/routes/github.routes");
 const { onboardingRouter } = require("./modules/onboarding/onboarding.routes");
-require('./utils/taskQueue');
-const cookieParser = require('cookie-parser');
+const { autoCompleteQueue, taskSyncQueue } = require('./utils/taskQueue');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -113,7 +128,7 @@ io.use((socket, next) => {
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "your_jwt_secret_here");
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
     socket.userId = decoded.id || decoded._id;
     next();
   } catch (err) {
@@ -130,13 +145,17 @@ io.on("connection", (socket) => {
   });
 });
 
-// الـ Base Route
+// ── Health check (excluded from rate limiting) ────────────────────────────────
 app.get("/", (req, res) => {
-  res.json({ message: "Hello from secure socket server" });
+  res.json({ status: "ok", message: "DevTracker API is running" });
 });
 
+// ── Global rate limiter (must be before all API routes) ───────────────────────
+// Webhooks are automatically skipped inside globalLimiter via its `skip` option.
+app.use(globalLimiter);
+
 // ==========================================
-// 4️⃣ الـ API Routes (جمعتهم تحت الميديليويرز الأساسية)
+// 4️⃣ API Routes
 // ==========================================
 app.use('/auth', regRouter);
 app.use('/developer', projectRouter);
@@ -149,13 +168,26 @@ app.use('/feedbacks', feedbackRouter);
 app.use('/github', githubRouter);
 app.use('/onboarding', onboardingRouter);
 
-// ميديليوير معالجة الأخطاء (بتاع الـ ApiError الكاستم بتاعك)
+// ── Global error handler (must be the LAST middleware) ────────────────────────
 app.use(errorMiddleware);
 
-// تشغيل السيرفر
-server.listen(port, () => {
-  console.log(`Server running on port ${port} with SECURE Socket.io support`);
-  console.log(`Allowed CORS origins: ${ALLOWED_ORIGINS.join(", ")}`);
-});
+// ==========================================
+// 5️⃣ Startup — DB MUST connect before the server accepts traffic
+// ==========================================
+const start = async () => {
+  try {
+    await dbConnection(); // Await Atlas connection — throws if it fails
+    server.listen(port, () => {
+      console.log(`✅ Server running on port ${port} with SECURE Socket.io support`);
+      console.log(`Allowed CORS origins: ${ALLOWED_ORIGINS.join(", ")}`);
+    });
+  } catch (err) {
+    console.error('[FATAL] Could not connect to MongoDB. Server will not start.', err.message);
+    process.exit(1);
+  }
+};
 
-dbConnection();
+start();
+
+// Export for graceful shutdown in server.js
+module.exports = { server, autoCompleteQueue, taskSyncQueue };

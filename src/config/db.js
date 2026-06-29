@@ -1,25 +1,23 @@
-const dotenv = require("dotenv");
 const mongoose = require("mongoose");
-dotenv.config({ path: "./config.env" });
 
-const dbConnection = () => {
-  console.log("Current Mongo URL from Env:", process.env.MONGO_URL);
-  console.log("Connecting to MongoDB...");
+/**
+ * Connects to MongoDB and returns the promise.
+ * Callers must await this so the server never starts before the DB is ready.
+ */
+const dbConnection = async () => {
+  // Mask credentials before logging so the Atlas password never appears in Railway logs
+  const safeUrl = process.env.MONGO_URL?.replace(
+    /:\/\/([^:]+):([^@]+)@/,
+    "://<user>:<pass>@"
+  );
+  console.log("Connecting to MongoDB:", safeUrl);
 
-  mongoose
-    .connect(process.env.MONGO_URL, {
-      // إجبار الاتصال على استخدام IPv4 لتجنب مشاكل الـ DNS في Node.js 18+
-      family: 4,
-      // تقليل وقت الانتظار للفشل بدلاً من 30 ثانية (اختياري)
-      serverSelectionTimeoutMS: 5000,
-    })
-    .then(() => {
-      console.log("Database is connected successfully ✅");
-    })
-    .catch((err) => {
-      console.error("❌ Error in connection database:");
-      console.error(err.message);
-    });
+  await mongoose.connect(process.env.MONGO_URL, {
+    family: 4,                       // Force IPv4 — avoids DNS lookup issues on Node 18+
+    serverSelectionTimeoutMS: 5000,  // Fail fast instead of hanging for 30 s
+  });
+
+  console.log("✅ Database connected successfully");
 };
 
 module.exports = dbConnection;
