@@ -6,7 +6,10 @@ const registerSchema = joi.object({
 });
 
 const otpSchema = joi.object({
-  otp: joi.number().required(),
+  // Must be a string — validating as number coerces "012345" → 12345,
+  // meaning two different OTP strings can pass as equal (leading-zero bypass).
+  // Exact 6-digit string pattern is the safe, unambiguous format.
+  otp: joi.string().length(6).pattern(/^\d{6}$/).required(),
   email: joi.string().email().required(),
 });
 

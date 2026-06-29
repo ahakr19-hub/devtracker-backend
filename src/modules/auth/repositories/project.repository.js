@@ -39,13 +39,19 @@ const completeProject = async (ownerId, projectId) => {
 };
 
 const getArchivedProjects = async (ownerId, page, limit) => {
+  // Clamp limit: minimum 1, maximum 100 — prevents client from scanning unbounded docs
+  const safeLimit = Math.min(Math.max(1, parseInt(limit) || 10), 100);
+  // Clamp page: minimum 0 (zero-indexed for skip calculation)
+  const safePage  = Math.max(0, parseInt(page) || 0);
+
   return await Project.find({
     owner: ownerId,
     isArchived: true,
   })
     .sort({ archivedAt: -1 })
-    .limit(limit)
-    .skip(page * limit);
+    .skip(safePage * safeLimit)
+    .limit(safeLimit)
+    .lean(); // .lean() returns plain objects — faster when we don't need Mongoose doc methods
 };
 
 const findAllProjects = async (ownerIds, page, limit) => {

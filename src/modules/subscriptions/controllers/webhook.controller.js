@@ -209,6 +209,14 @@ exports.handlePaymobWebhook = async (req, res, next) => {
 
     const developerId = merchantOrderId.split('_')[0];
 
+    // Guard: verify the extracted developerId is a valid MongoDB ObjectId.
+    // A malformed merchantOrderId would produce garbage here and findByIdAndUpdate
+    // would silently do nothing — making a payment effectively lost with no error log.
+    if (!require('mongoose').Types.ObjectId.isValid(developerId)) {
+      console.error('[Paymob] Invalid developerId in merchantOrderId:', merchantOrderId);
+      return res.status(400).send('Invalid merchant_order_id format');
+    }
+
     if (isSuccess) {
       await Developer.findByIdAndUpdate(developerId, {
         $set: {

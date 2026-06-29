@@ -1,20 +1,21 @@
 const ApiError = require("../utils/apiErrors");
-const { findUserById } = require("../modules/auth/repositories/auth.repository");
 const { countAllProjects } = require("../modules/auth/repositories/project.repository");
 
 const checkProjectLimit = async (req, res, next) => {
   try {
-    const developerId = req.user._id;
+    // req.user is already populated by the protect() middleware — no extra DB query needed.
+    // Previously this middleware re-fetched the same developer from MongoDB (wasted round-trip).
+    const dev = req.user;
 
-    const dev = await findUserById(developerId);
-    if (!dev) {
-      return next(new ApiError(404, "Developer not found"));
-    }
-
-    const currentProjectsCount = await countAllProjects([developerId]);
+    const currentProjectsCount = await countAllProjects([dev._id]);
 
     if (!dev.subscription?.isPremium && currentProjectsCount >= 3) {
-      return next(new ApiError(403, "Free tier limit reached. You can only add up to 3 projects. Please upgrade for more."));
+      return next(
+        new ApiError(
+          403,
+          "Free tier limit reached. You can only add up to 3 projects. Please upgrade for more."
+        )
+      );
     }
 
     next();

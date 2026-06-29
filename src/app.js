@@ -121,7 +121,11 @@ io.use((socket, next) => {
     .map(c => c.trim())
     .find(c => c.startsWith("token="));
 
-  const token = tokenEntry ? tokenEntry.split("=")[1]?.trim() : null;
+  // Use indexOf so base64 "=" padding chars inside the JWT value are NOT truncated.
+  // split("=")[1] would break tokens like "abc.def.ghi==" → "abc.def.ghi"
+  const token = tokenEntry
+    ? tokenEntry.slice(tokenEntry.indexOf("=") + 1).trim()
+    : null;
 
   if (!token) {
     return next(new Error("Authentication error: No token provided"));
