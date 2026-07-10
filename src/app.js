@@ -43,9 +43,10 @@ app.use(cookieParser());
 
 const ALLOWED_ORIGINS = [
   "http://localhost:4200",
-  "https://strong-tartufo-f65dca.netlify.app",        // ← الفرونت إند الحالي المتأكتف
-  "https://extraordinary-tartufo-5bfdd1.netlify.app",  // ← الفرونت إند البديل
-  "https://dev-tracker-production-3ef3.up.railway.app", // ← الدومين الجديد بتاع ريلواي نفسه
+  "https://dev-tracker-api-five.vercel.app",                                        // ← Main Vercel domain
+  "https://dev-tracker-api-git-main-hellocan694-bits-projects.vercel.app",           // ← Git/branch Vercel domain
+  "https://dev-tracker-qlslanjqn-hellocan694-bits-projects.vercel.app",              // ← Preview Vercel domain
+  "https://dev-tracker-production-3ef3.up.railway.app", // ← Railway backend self-origin
 ];
 
 // ==========================================

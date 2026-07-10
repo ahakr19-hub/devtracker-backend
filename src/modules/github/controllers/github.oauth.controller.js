@@ -64,7 +64,7 @@ const githubOAuthCallback = async (req, res, next) => {
   try {
     const { code, state, error: ghError } = req.query;
 
-    const frontendUrl = process.env.FRONTEND_URL || "https://strong-tartufo-f65dca.netlify.app";
+    const frontendUrl = process.env.FRONTEND_URL || "https://dev-tracker-api-five.vercel.app";
 
     // User denied access on GitHub
     if (ghError) {
