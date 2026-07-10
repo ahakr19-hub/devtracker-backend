@@ -90,7 +90,19 @@ const developerSchema = new mongoose.Schema(
 
     resetOTPLastRequest: {
       type: Date,
-    }
+    },
+
+    // ── User Preferences & Notifications ─────────────────────────────────────
+    // Additive fields — existing documents default gracefully (no migration needed).
+    notifications: {
+      emailOnTaskComplete:  { type: Boolean, default: false },
+      emailOnProjectUpdate: { type: Boolean, default: false },
+    },
+
+    preferences: {
+      theme:    { type: String, enum: ['dark', 'light', 'system'], default: 'dark' },
+      language: { type: String, enum: ['en', 'ar'],               default: 'en'   },
+    },
   },
   { timestamps: true }
 );

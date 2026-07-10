@@ -64,6 +64,31 @@ const changPass = joi.object({
   password: joi.string().min(8).required(),
 });
 
+// ── Settings / Account ───────────────────────────────────────────────────────
+// updateSettingsSchema: all fields optional but at least one must be sent.
+const updateSettingsSchema = joi.object({
+  name: joi.string().min(3).max(50).trim(),
+  // Future preference fields can be added here (theme, notifications, etc.)
+  notifications: joi.object({
+    emailOnTaskComplete: joi.boolean(),
+    emailOnProjectUpdate: joi.boolean(),
+  }),
+  preferences: joi.object({
+    theme: joi.string().valid('dark', 'light', 'system'),
+    language: joi.string().valid('en', 'ar'),
+  }),
+}).min(1).messages({
+  'object.min': 'Request body must contain at least one field to update.',
+});
+
+// deleteAccountSchema: requires the user to re-enter their current password.
+const deleteAccountSchema = joi.object({
+  password: joi.string().min(8).required().messages({
+    'string.min': 'Password must be at least 8 characters.',
+    'any.required': 'Password confirmation is required to delete your account.',
+  }),
+});
+
 const mailSchema = joi.object({
   email: joi.string().email().required(),
 });
@@ -102,4 +127,6 @@ module.exports = {
   mailSchema,
   createFeedbackSchema,
   updateFeedbackSchema,
+  updateSettingsSchema,
+  deleteAccountSchema,
 };
