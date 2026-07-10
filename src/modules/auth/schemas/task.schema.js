@@ -39,6 +39,22 @@ const taskSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+
+    // The developer this task is assigned to (used for RBAC on updates)
+    assignedTo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Developer",
+      default: null,
+      index: true,
+    },
+
+    // Completion percentage — assignedDev can update this; owners can update everything
+    progress: {
+      type: Number,
+      min: 0,
+      max: 100,
+      default: 0,
+    },
   },
   {
     timestamps: true,

@@ -1,4 +1,3 @@
-// src/modules/projects/services/project.service.js
 const ApiError = require("../../../utils/apiErrors");
 const { findUserById } = require("../repositories/auth.repository");
 const {
@@ -14,7 +13,10 @@ const {
   countAllProjects,
   countAllArchivedProjects,
   incrementDeveloperProjectCount,
+  updateProjectById,
+  getOneProjectWithOwner,
 } = require("../repositories/project.repository");
+const Project = require("../schemas/project.schema");
 
 const createDevProject = async ({
   name,
@@ -114,6 +116,58 @@ const deleteAllDevProject = async (developerId) => {
   return result;
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// updateDevProject
+//
+// Allowed fields whitelist lives here (service layer) — not in the controller —
+// because business rules belong in the service, not in the transport layer.
+// The pick() helper is the mass-assignment guard: unknown fields are silently
+// dropped before the update object ever reaches the repository.
+// ─────────────────────────────────────────────────────────────────────────────
+const ALLOWED_PROJECT_UPDATE_FIELDS = [
+  "name",
+  "clientName",
+  "hourlyRate",
+  "description",
+  "status",
+];
+
+const pick = (obj, keys) =>
+  keys.reduce((acc, key) => {
+    if (obj[key] !== undefined) acc[key] = obj[key];
+    return acc;
+  }, {});
+
+const updateDevProject = async (requesterId, projectId, rawUpdates, isAdmin = false) => {
+  if (!requesterId || !projectId)
+    throw new ApiError(400, "Missing requester or project identifier");
+
+  // 1. Sanitise — drop any field not in the whitelist (mass-assignment guard)
+  const safeUpdates = pick(rawUpdates, ALLOWED_PROJECT_UPDATE_FIELDS);
+  if (Object.keys(safeUpdates).length === 0)
+    throw new ApiError(400, "No valid fields provided for update");
+
+  // 2a. Platform admin: fetch by id alone, then apply & save so Mongoose
+  //     validators run (findOneAndUpdate with runValidators does the same job
+  //     but this makes the admin bypass explicit and auditable).
+  if (isAdmin) {
+    const project = await getOneProject(projectId);
+    if (!project) throw new ApiError(404, "Project not found");
+    Object.assign(project, safeUpdates);
+    await project.save();
+    return project.toObject
+      ? project.toObject()
+      : project;
+  }
+
+  // 2b. Owner: ownership check is baked into the query filter inside the repo.
+  const updatedProject = await updateProjectById(requesterId, projectId, safeUpdates);
+  if (!updatedProject)
+    throw new ApiError(404, "Project not found or you are not authorised to update it");
+
+  return updatedProject;
+};
+
 module.exports = {
   createDevProject,
   completedDevProject,
@@ -121,4 +175,5 @@ module.exports = {
   getAllDevProjects,
   deleteDevProject,
   deleteAllDevProject,
+  updateDevProject,
 };

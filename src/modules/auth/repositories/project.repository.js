@@ -148,6 +148,42 @@ const deleteProjects = async (ownerId) => {
   return deletedProjects;
 }
 
+/**
+ * updateProjectById
+ * 
+ * Atomically updates a project, enforcing ownership at the DB level.
+ * - Filtering on both _id AND owner prevents any IDOR / privilege escalation:
+ *   a document is only mutated when it belongs to the requesting owner.
+ * - runValidators: true re-runs schema validators on the updated fields.
+ * - .select() keeps the response payload minimal — only fields the client needs.
+ *
+ * @param {string} ownerId   - ObjectId of the authenticated owner (from req.user._id)
+ * @param {string} projectId - ObjectId of the project to update (from req.params)
+ * @param {object} updates   - Sanitised key/value pairs to apply
+ * @returns {Promise<Document|null>} The updated project or null if not found/unauthorised
+ */
+const updateProjectById = async (ownerId, projectId, updates) => {
+  return await Project.findOneAndUpdate(
+    { _id: projectId, owner: ownerId }, // ← auth enforced at query level
+    { $set: updates },
+    { new: true, runValidators: true }
+  ).select("name clientName hourlyRate description status isArchived updatedAt");
+};
+
+/**
+ * getOneProjectWithOwner
+ *
+ * Lightweight fetch used by the authorisation middleware.
+ * Only retrieves the `owner` field — avoids loading the full document
+ * just to do an ownership check.
+ */
+const getOneProjectWithOwner = async (projectId) => {
+  if (!mongoose.Types.ObjectId.isValid(projectId)) {
+    throw new ApiError(400, "Invalid Project ID");
+  }
+  return await Project.findById(projectId).select("owner").lean();
+};
+
 module.exports = {
   createProject,
   isProjectExists,
@@ -160,6 +196,7 @@ module.exports = {
   countAllProjects,
   countAllArchivedProjects,
   getOneActiveProjects,
-  incrementDeveloperProjectCount
-
+  incrementDeveloperProjectCount,
+  updateProjectById,
+  getOneProjectWithOwner,
 };

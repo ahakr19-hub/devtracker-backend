@@ -39,6 +39,23 @@ const createTaskSchema = joi.object({
   deadline: joi.date().greater("now"),
 });
 
+// ── Task Update — split by role in the controller, validated together here ──
+// Owner/Admin fields: title, estimatedHours, deadline, assignedTo
+// Assigned-developer fields: status, progress
+const updateTaskSchema = joi.object({
+  title: joi.string().min(3).max(255),
+  estimatedHours: joi.number().min(0),
+  deadline: joi.date(),
+  assignedTo: joi
+    .string()
+    .regex(/^[0-9a-fA-F]{24}$/)
+    .message('"assignedTo" must be a valid MongoDB ObjectId'),
+  status: joi.string().valid("todo", "in-progress", "done"),
+  progress: joi.number().min(0).max(100),
+}).min(1).messages({
+  'object.min': 'Request body must contain at least one field to update.',
+});
+
 const changUser = joi.object({
   name: joi.string().min(3).max(30).required(),
 });
@@ -78,6 +95,7 @@ module.exports = {
   createProjectSchema,
   updateProjectSchema,
   createTaskSchema,
+  updateTaskSchema,
   changUser,
   changPass,
   changePassSchema,

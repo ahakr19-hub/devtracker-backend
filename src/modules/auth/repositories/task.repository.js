@@ -75,17 +75,55 @@ const findAllTasksByProjectId = (projectId) => {
 };
 
 const deleteCompletedTasks = async (projectId) => {
-  
   return taskSchema.deleteMany({
     project: projectId,
     status: 'done'
   });
 };
+
+/**
+ * updateTaskById
+ *
+ * Atomically patches a task. Filters on both _id and project to ensure
+ * the task actually belongs to the stated project (prevents cross-project
+ * manipulation). runValidators re-runs schema-level min/max constraints.
+ * .select() returns only the fields the client needs — avoids heavy payloads.
+ *
+ * @param {string} taskId   - The task's ObjectId
+ * @param {string} projectId - The project the task must belong to
+ * @param {object} updates  - Sanitised update fields (already filtered by RBAC)
+ * @returns {Promise<Document|null>}
+ */
+const updateTaskById = async (taskId, projectId, updates) => {
+  return await taskSchema.findOneAndUpdate(
+    { _id: taskId, project: projectId },  // ← scope to project prevents IDOR
+    { $set: updates },
+    { new: true, runValidators: true }
+  ).select("title status progress estimatedHours deadline assignedTo project updatedAt");
+};
+
+/**
+ * findTaskWithProject
+ *
+ * Fetches a task and populates only the `owner` and `hourlyRate` from
+ * the related Project. Used exclusively by the RBAC middleware to avoid
+ * loading the entire project document for a simple ownership check.
+ *
+ * @param {string} taskId
+ * @returns {Promise<Document|null>}
+ */
+const findTaskWithProject = (taskId) =>
+  taskSchema
+    .findById(taskId)
+    .populate({ path: "project", select: "owner hourlyRate" });
+
 module.exports = {
   creatTaske,
   completeTaskById,
   findTaskById,
   getProjectFinancials,
   findAllTasksByProjectId,
-  deleteCompletedTasks
+  deleteCompletedTasks,
+  updateTaskById,
+  findTaskWithProject,
 };
