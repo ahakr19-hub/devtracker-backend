@@ -33,7 +33,7 @@ const developerSchema = new mongoose.Schema(
         default: "free"
       },
       isPremium: { type: Boolean, default: false },
-      stripeCustomerId: { type: String }, // هنحتاجه لما نربط Stripe
+      stripeCustomerId: { type: String },
       status: {
         type: String,
         enum: ["trialing", "active", "past_due", "canceled", "free"],
@@ -52,7 +52,23 @@ const developerSchema = new mongoose.Schema(
         type: String,
         enum: ["EGP", "USD"],
         default: "USD"
-      }
+      },
+
+      // ── Dynamic Expiry Tracking ───────────────────────────────────────────
+      // planType drives the expiry logic: lifetime never expires.
+      planType: {
+        type: String,
+        enum: ["monthly", "yearly", "lifetime"],
+        default: "monthly"
+      },
+      // subscriptionStatus is the source-of-truth for access; auto-set by middleware.
+      subscriptionStatus: {
+        type: String,
+        enum: ["active", "expired"],
+        default: "expired"
+      },
+      // Set by the payment webhook to Date.now() + billing period duration.
+      subscriptionExpiresAt: { type: Date }
     },
     projectCount: {
       type: Number,

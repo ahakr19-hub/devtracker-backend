@@ -23,13 +23,19 @@ const requireProAccess = (req, res, next) => {
 
   const github = user.github || {};
 
-  // ── Gate 1: Paid Pro subscriber — checks the actual subscription field ──────
-  // set by the Stripe/Paymob webhook after a confirmed payment.
+  // ── Gate 1: Paid subscriber — dynamic plan + expiry validation ──────────────
   if (user.subscription?.isPremium === true) {
-    return next();
+    const sub = user.subscription;
+    // Lifetime passes unconditionally
+    if (sub.planType === "lifetime") return next();
+    // Timed plans must still be within their billing window
+    if (sub.subscriptionExpiresAt && Date.now() <= new Date(sub.subscriptionExpiresAt).getTime()) {
+      return next();
+    }
+    // Fall through — expired timed plan treated as non-premium
   }
 
-  // ── Gate 2: Active trial window ───────────────────────────────────
+  // ── Gate 2: Active trial window ───────────────────────────────────────────
   const { active, daysRemaining, endsAt } = getTrialStatus(github.proTrialEndDate);
   if (active) {
     return next();
