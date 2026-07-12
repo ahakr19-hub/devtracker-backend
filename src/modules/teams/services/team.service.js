@@ -23,43 +23,53 @@ const getMyTeams = async (userId) => {
     throw new ApiError(400, "User ID is required");
   }
 
-  // Single optimised DB round-trip — repository uses compound index IXSCAN
-  const allTeams = await teamRepository.findMyTeams(userId);
+  // 1. Fetch public profile of current user (owner of their team)
+  const ownerProfile = await teamRepository.findUserPublicProfile(userId);
 
-  const userIdStr = userId.toString();
+  // 2. Fetch all members who joined current user's team
+  const myMembers = await teamRepository.findMyTeamMembers(userId);
 
-  // Partition into owned vs member in O(n) — no second DB call needed.
-  const ownedTeams = allTeams.filter(
-    (t) => t.owner._id.toString() === userIdStr
-  );
+  const ownedTeams = [];
+  if (ownerProfile) {
+    ownedTeams.push({
+      _id: ownerProfile._id.toString(),
+      name: `${ownerProfile.name}'s Team`,
+      description: "Primary development workspace",
+      category: "general",
+      isActive: true,
+      owner: ownerProfile,
+      members: myMembers,
+      createdAt: ownerProfile.createdAt || new Date(),
+      updatedAt: new Date()
+    });
+  }
 
-  const memberTeams = allTeams.filter(
-    (t) => t.owner._id.toString() !== userIdStr
-  );
+  // 3. Fetch all teams the current user joined as a member
+  const memberTeamsData = await teamRepository.findTeamsIJoined(userId);
+  const memberTeams = memberTeamsData.map(t => {
+    if (!t.owner) return null;
+    return {
+      _id: t.owner._id.toString(),
+      name: `${t.owner.name}'s Team`,
+      description: "Collaborator workspace",
+      category: "general",
+      isActive: true,
+      owner: t.owner,
+      members: t.members,
+      createdAt: t.joinedAt || new Date(),
+      updatedAt: new Date()
+    };
+  }).filter(Boolean);
 
   return { ownedTeams, memberTeams };
 };
 
 /**
- * Create a new team — the calling user becomes the owner.
- *
- * @param {string} ownerId
- * @param {{ name: string, description?: string, category?: string }} payload
- * @returns {object} The newly created team (lean, populated)
+ * Create a new team — this is a placeholder/no-op since teams are implicit
+ * based on invitation/developer linkage in this schema.
  */
 const createTeam = async (ownerId, payload) => {
-  const { name, description, category } = payload;
-
-  if (!name || name.trim().length < 2) {
-    throw new ApiError(400, "Team name must be at least 2 characters");
-  }
-
-  return teamRepository.createTeam({
-    name: name.trim(),
-    description: description?.trim(),
-    category: category?.trim(),
-    ownerId,
-  });
+  throw new ApiError(400, "In this workspace, teams are automatically created when you send and accept invitations.");
 };
 
 module.exports = {

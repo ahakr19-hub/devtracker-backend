@@ -111,5 +111,6 @@ const developerSchema = new mongoose.Schema(
 // Sparse so docs without a githubId don't consume index space
 //hello
 developerSchema.index({ "github.githubId": 1 }, { sparse: true });
+developerSchema.index({ "teams.adminId": 1 });
 
 module.exports = mongoose.model("Developer", developerSchema, "developers");
