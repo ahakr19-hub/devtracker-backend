@@ -20,6 +20,7 @@ const {
   trialStatus,
   handleWebhook,
   trialActivity,
+  repoContents,
 } = require("../controllers/github.controller");
 
 const githubRouter = express.Router();
@@ -70,5 +71,12 @@ githubRouter.post("/select-repos", requireProAccess, selectReposHandler);
  * Returns Developer Activity log from GitHub APIs based on linked repos.
  */
 githubRouter.get("/activity", requireProAccess, trialActivity);
+
+/**
+ * GET /github/repos/:owner/:repo/contents
+ * Returns enriched file tree (path, sha, size, extension, language) + lang breakdown.
+ * Requires: linked GitHub account + active trial or isPro.
+ */
+githubRouter.get('/repos/:owner/:repo/contents', requireProAccess, repoContents);
 
 module.exports = githubRouter;

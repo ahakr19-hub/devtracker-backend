@@ -166,7 +166,7 @@ const listGithubRepos = async (developerId) => {
     if (page > 2) break;             // cap at 200 repos for performance
   }
 
-  // ── Shape response — only expose what the frontend needs ──────────────────
+  // ── Shape response — enriched payload ────────────────────────────────────
   const shaped = repos.map((r) => ({
     repoId: r.id,
     name: r.name,
@@ -176,13 +176,121 @@ const listGithubRepos = async (developerId) => {
     description: r.description,
     language: r.language,
     stars: r.stargazers_count,
+    forks: r.forks_count,
+    openIssues: r.open_issues_count,
+    sizeKb: r.size,           // in KB, as returned by GitHub
+    defaultBranch: r.default_branch,
     updatedAt: r.updated_at,
+    pushedAt: r.pushed_at,
+    topics: r.topics || [],
   }));
 
   // ── Populate cache ─────────────────────────────────────────────────────────
   repoCache.set(developerId, { data: shaped, expiresAt: Date.now() + REPO_CACHE_TTL_MS });
 
   return shaped;
+};
+
+// ─── File-tree with metadata (Active File Analytics) ─────────────────────────
+
+/**
+ * Fetches the file tree for a given repo + branch using Git Trees API (recursive).
+ * Each blob entry is enriched with its extension and a size label.
+ * Uses Promise.all for concurrent SHA-based enrichment when needed.
+ *
+ * @param {string} developerId
+ * @param {string} repoFullName  e.g. "octocat/hello-world"
+ * @param {string} [branch]      defaults to repo's default_branch
+ * @returns {Promise<Array>} Array of enriched file entries
+ */
+const fetchRepoContents = async (developerId, repoFullName, branch = 'HEAD') => {
+  const slice = await getGithubSlice(developerId);
+  if (!slice?.github?.githubToken) {
+    throw new ApiError(400, 'GitHub account not linked.');
+  }
+
+  const rawToken = decryptToken(slice.github.githubToken);
+  if (!rawToken) throw new ApiError(500, 'Token decrypt failed.');
+
+  const headers = {
+    Authorization: `Bearer ${rawToken}`,
+    'User-Agent': 'DevTracker-API',
+  };
+
+  // Use the recursive Git Trees API — single request for the entire file tree
+  const { data: treeData } = await axios.get(
+    `https://api.github.com/repos/${repoFullName}/git/trees/${branch}`,
+    { headers, params: { recursive: '1' } }
+  );
+
+  if (!treeData?.tree) return [];
+
+  // ── Filter blobs only (skip tree nodes) ──────────────────────────────────
+  const blobs = treeData.tree
+    .filter((node) => node.type === 'blob')
+    .slice(0, 300); // safety cap
+
+  // ── Enrich each file entry in parallel ───────────────────────────────────
+  const LANG_EXT_MAP = {
+    js: 'JavaScript', ts: 'TypeScript', jsx: 'JavaScript', tsx: 'TypeScript',
+    py: 'Python', java: 'Java', cs: 'C#', cpp: 'C++', c: 'C',
+    go: 'Go', rs: 'Rust', rb: 'Ruby', php: 'PHP', swift: 'Swift',
+    kt: 'Kotlin', dart: 'Dart', html: 'HTML', css: 'CSS', scss: 'SCSS',
+    sass: 'SCSS', vue: 'Vue', svelte: 'Svelte', sh: 'Shell', bash: 'Shell',
+    md: 'Markdown', json: 'JSON', yaml: 'YAML', yml: 'YAML', xml: 'XML',
+    sql: 'SQL', graphql: 'GraphQL', dockerfile: 'Docker', tf: 'Terraform',
+  };
+
+  const enriched = blobs.map((node) => {
+    const parts = node.path.split('/');
+    const filename = parts[parts.length - 1];
+    const dotIndex = filename.lastIndexOf('.');
+    const ext = dotIndex !== -1 ? filename.slice(dotIndex + 1).toLowerCase() : '';
+    const lang = LANG_EXT_MAP[ext] || null;
+    const sizeKb = node.size ? +(node.size / 1024).toFixed(2) : 0;
+
+    return {
+      path: node.path,
+      name: filename,
+      sha: node.sha,
+      sizeBytes: node.size || 0,
+      sizeKb,
+      extension: ext,
+      language: lang,
+      directory: parts.length > 1 ? parts.slice(0, -1).join('/') : '',
+    };
+  });
+
+  // ── Sort: dirs first, then alphabetically ────────────────────────────────
+  enriched.sort((a, b) => {
+    if (a.directory !== b.directory) return a.directory.localeCompare(b.directory);
+    return a.name.localeCompare(b.name);
+  });
+
+  return {
+    truncated: treeData.truncated || false,
+    totalFiles: enriched.length,
+    files: enriched,
+    langBreakdown: _computeLangBreakdown(enriched),
+  };
+};
+
+/**
+ * Computes a language distribution breakdown sorted by file count.
+ * @param {Array} files
+ * @returns {Array<{ language: string, count: number, percent: number }>}
+ */
+const _computeLangBreakdown = (files) => {
+  const counts = {};
+  let total = 0;
+  files.forEach((f) => {
+    const key = f.language || 'Other';
+    counts[key] = (counts[key] || 0) + 1;
+    total++;
+  });
+  return Object.entries(counts)
+    .map(([language, count]) => ({ language, count, percent: +((count / total) * 100).toFixed(1) }))
+    .sort((a, b) => b.count - a.count);
 };
 
 // ─── Agent 2: Auto-Create Projects from Newly Linked Repos ──────────────────
@@ -434,4 +542,5 @@ module.exports = {
   exchangeCodeForToken, // exported for OAuth redirect flow
   fetchGithubProfile,
   fetchDeveloperActivity,
+  fetchRepoContents,    // NEW — file analytics endpoint
 };

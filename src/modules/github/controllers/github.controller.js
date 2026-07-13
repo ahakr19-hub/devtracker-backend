@@ -15,6 +15,7 @@ const {
   selectRepos,
   fetchTrialStatus,
   fetchDeveloperActivity,
+  fetchRepoContents,
 } = require("../services/github.service");
 const { verifyGitHubWebhook } = require("../utils/github.webhook.helper");
 const TaskActivity = require("../../auth/schemas/taskActivity.schema");
@@ -201,4 +202,44 @@ const trialActivity = async (req, res, next) => {
   }
 };
 
-module.exports = { linkAccount, listRepos, selectReposHandler, trialStatus, handleWebhook, trialActivity };
+// ─── GET /github/repos/:owner/:repo/contents ─────────────────────────────────
+/**
+ * Agent 1: Returns the full, enriched file tree for a given repository.
+ * Includes per-file: path, name, sha, sizeBytes, sizeKb, extension, language.
+ * Also returns a language breakdown array sorted by file count.
+ *
+ * Params: owner (string), repo (string)
+ * Query:  branch (string, optional — defaults to HEAD)
+ */
+const repoContents = async (req, res, next) => {
+  try {
+    const { owner, repo } = req.params;
+    const { branch = 'HEAD' } = req.query;
+
+    if (!owner || !repo) {
+      return next(new ApiError(400, 'owner and repo params are required.'));
+    }
+
+    // Sanitize: only allow alphanumeric, dash, dot, underscore
+    const safe = /^[\w.-]+$/;
+    if (!safe.test(owner) || !safe.test(repo)) {
+      return next(new ApiError(400, 'Invalid repository identifier.'));
+    }
+
+    const developerId = req.user._id.toString();
+    const repoFullName = `${owner}/${repo}`;
+
+    const result = await fetchRepoContents(developerId, repoFullName, branch);
+
+    res.status(200).json({
+      message: 'Repository contents fetched successfully.',
+      repoFullName,
+      branch,
+      ...result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = { linkAccount, listRepos, selectReposHandler, trialStatus, handleWebhook, trialActivity, repoContents };
