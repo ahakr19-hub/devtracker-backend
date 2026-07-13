@@ -2,6 +2,7 @@
  * onboarding.controller.js
  * ══════════════════════════════════════════════════════════════════
  * HTTP controller for the Onboarding Bot API endpoints.
+ * [Reload Triggered]
  *
  * Endpoints:
  *   POST /api/v1/onboarding/trigger
