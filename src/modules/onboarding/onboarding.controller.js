@@ -89,4 +89,50 @@ const triggerOnboardingBotSync = async (req, res, next) => {
   }
 };
 
-module.exports = { triggerOnboardingBot, triggerOnboardingBotSync };
+/**
+ * @desc    Ask ARIA onboarding assistant a custom question
+ * @route   POST /api/v1/onboarding/qa
+ * @access  Private
+ */
+const askAria = async (req, res, next) => {
+  try {
+    const { question, techStack = [], projectName = 'Unknown Project' } = req.body;
+
+    if (!question) {
+      return next(new ApiError(400, "question is required."));
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(200).json({
+        status: "success",
+        answer: "System offline. Offline response: Verify your configuration environment key."
+      });
+    }
+
+    const { GoogleGenerativeAI } = require("@google/generative-ai");
+    const client = new GoogleGenerativeAI(apiKey);
+    const model = client.getGenerativeModel({
+      model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+      systemInstruction: `
+You are ARIA — Automated Repository Intelligence Assistant.
+You are helping a developer onboard onto the project "${projectName}" which uses stack: ${techStack.join(', ')}.
+Speak like a senior developer: concise, direct, dark-mode/glassmorphic high-contrast aesthetic in tone.
+Zero corporate fluff. Max 3 sentences. Get straight to the technical solution or advice.
+`
+    });
+
+    const prompt = `Developer asks: "${question}"`;
+    const result = await model.generateContent(prompt);
+    const text = result.response.text().trim();
+
+    res.status(200).json({
+      status: "success",
+      answer: text
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = { triggerOnboardingBot, triggerOnboardingBotSync, askAria };

@@ -5,6 +5,7 @@ const { protect } = require("../../middlewares/auth.middleware");
 const {
   triggerOnboardingBot,
   triggerOnboardingBotSync,
+  askAria,
 } = require("./onboarding.controller");
 
 const onboardingRouter = express.Router();
@@ -16,5 +17,6 @@ onboardingRouter.use(protect);
 // depending on how DevTracker manages RBAC
 onboardingRouter.post("/trigger", triggerOnboardingBot);
 onboardingRouter.post("/trigger/sync", triggerOnboardingBotSync);
+onboardingRouter.post("/qa", askAria);
 
 module.exports = { onboardingRouter };
