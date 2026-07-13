@@ -29,6 +29,27 @@ const { getCookieOptions } = require("../../../utils/cookieOptions");
 // Agent 3 (Refactor): Scopes driven by env to request webhook permissions
 const SCOPES = process.env.GITHUB_SCOPES || ["read:user", "user:email", "repo", "admin:repo_hook"].join(" ");
 
+// ─── GET /auth/github/get-link-token ─────────────────────────────────────────
+/**
+ * Protected route — frontend calls this FIRST (cookie is sent automatically).
+ * Issues a short-lived (5 min), single-purpose JWT the frontend embeds as
+ * ?token=... in the GitHub OAuth redirect URL.
+ * This is the only safe way to pass identity into the stateless OAuth flow
+ * when the real JWT lives in an HttpOnly cookie JS cannot read.
+ */
+const getLinkToken = (req, res, next) => {
+  try {
+    const linkToken = jwt.sign(
+      { id: req.user._id.toString(), purpose: "github-link" },
+      process.env.JWT_SECRET,
+      { expiresIn: "5m" }
+    );
+    return res.status(200).json({ status: "success", linkToken });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // ─── GET /auth/github ─────────────────────────────────────────────────────────
 /**
  * Redirects user to GitHub OAuth with state=<devtracker_jwt>.
@@ -98,12 +119,17 @@ const githubOAuthCallback = async (req, res, next) => {
     }
 
     // ── 2. LINK ACCOUNT FLOW ──────────────────────────────────────────────────
-    // Verify the state is a genuine DevTracker JWT
+    // Verify the state is a genuine DevTracker link-only JWT
     let decoded;
     try {
       decoded = jwt.verify(state, process.env.JWT_SECRET);
     } catch {
       return next(new ApiError(401, "Invalid or expired DevTracker token in state."));
+    }
+
+    // Reject regular session JWTs — only accept purpose-stamped link tokens
+    if (decoded.purpose !== "github-link") {
+      return next(new ApiError(401, "Token is not valid for account linking."));
     }
 
     // Load developer from token payload
@@ -132,4 +158,4 @@ const githubOAuthCallback = async (req, res, next) => {
   }
 };
 
-module.exports = { githubOAuthRedirect, githubOAuthCallback };
+module.exports = { getLinkToken, githubOAuthRedirect, githubOAuthCallback };
