@@ -1,24 +1,59 @@
 const { tryCatch } = require("bullmq");
-const teamService = require("../../services/team.service");
+const teamService   = require("../../services/team.service");
+const Project       = require("../../schemas/project.schema");
+
 const sendInvite = async (req, res, next) => {
   try {
     const adminId = req.user._id;
-    const { email } = req.body;
+    const { email, sharedProjects = [] } = req.body;
 
-    const invitation = await teamService.sendInvite(adminId, email);
+    // Basic input guard before hitting the service layer
+    if (!email || typeof email !== "string") {
+      return res.status(400).json({ status: "fail", message: "A valid developer email is required." });
+    }
+
+    const invitation = await teamService.sendInvite(adminId, email, sharedProjects);
 
     res.status(201).json({
       status: "success",
-      message:
-        "Invitation sent successfully. The developer will see it in their dashboard.",
-      data: {
-        invitation,
-      },
+      message: "Invitation sent successfully. The developer will see it in their dashboard.",
+      data: { invitation },
     });
   } catch (error) {
     next(error);
   }
 };
+
+/**
+ * Agent 2 — GET /invitations/my-projects
+ * Returns only the non-archived projects owned by the requesting admin,
+ * so the frontend project-selector modal can populate itself without
+ * exposing any other developer's data.
+ *
+ * Projection: only _id and name are returned (minimal surface area).
+ */
+const getAdminProjects = async (req, res, next) => {
+  try {
+    const adminId = req.user._id;
+
+    const projects = await Project.find(
+      { owner: adminId, isArchived: false },
+      { _id: 1, name: 1, status: 1 }      // minimal projection
+    )
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.status(200).json({
+      status: "success",
+      results: projects.length,
+      data: { projects },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+
 
 // في ملف controllers/team.controller.js
 
@@ -135,9 +170,11 @@ const updateMemberPermission = async (req, res, next) => {
 
 module.exports = {
   sendInvite,
+  getAdminProjects,
   getMyInvitations,
   respondToInvitation,
   getTeamMembers,
   removeTeamMember,
   updateMemberPermission
 };
+

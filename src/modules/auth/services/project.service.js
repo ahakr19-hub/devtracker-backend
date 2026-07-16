@@ -17,6 +17,7 @@ const {
   getOneProjectWithOwner,
 } = require("../repositories/project.repository");
 const Project = require("../schemas/project.schema");
+const Invitation = require("../schemas/invitation.schema");
 
 const createDevProject = async ({
   name,
@@ -81,16 +82,47 @@ const getAllDevProjects = async (developerId, page, limit) => {
   if (!developerId) throw new ApiError(404, "Developer not found");
 
   const dev = await findUserById(developerId);
+  if (!dev) throw new ApiError(404, "Developer not found");
 
-  // Collect all owner IDs: the developer themselves + any team admins
-  const allowedOwners = [developerId];
-  if (dev.teams && dev.teams.length > 0) {
-    const adminIds = dev.teams.map((t) => t.adminId);
-    allowedOwners.push(...adminIds);
+  // Get all projects explicitly shared with this developer via accepted invitations
+  const acceptedInvites = await Invitation.find({
+    recipientEmail: dev.email,
+    status: "accepted"
+  }).select("sharedProjects").lean();
+
+  const sharedProjectIds = [];
+  if (acceptedInvites && acceptedInvites.length > 0) {
+    acceptedInvites.forEach(invite => {
+      if (invite.sharedProjects && invite.sharedProjects.length > 0) {
+        sharedProjectIds.push(...invite.sharedProjects);
+      }
+    });
   }
 
-  // findAllProjects returns { projects, totalActiveProjects } — destructure it
-  const { projects: Projects, totalActiveProjects } = await findAllProjects(allowedOwners, page, limit);
+  const safePage = Math.max(1, parseInt(page) || 1);
+  const safeLimit = Math.max(1, parseInt(limit) || 10);
+  const skip = (safePage - 1) * safeLimit;
+
+  const query = {
+    isArchived: false,
+    $or: [
+      { owner: developerId },
+      { _id: { $in: sharedProjectIds } }
+    ]
+  };
+
+  const [Projects, totalActiveProjects] = await Promise.all([
+    Project.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(safeLimit)
+      .populate({
+        path: "owner",
+        select: "name email avatar"
+      })
+      .lean(),
+    Project.countDocuments(query)
+  ]);
 
   return { Projects, totalActiveProjects };
 };

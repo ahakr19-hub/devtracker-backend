@@ -1,11 +1,24 @@
-const Developer = require("../repositories/auth.repository")
-const ApiError = require("../../../utils/apiErrors")
+const Developer    = require("../repositories/auth.repository");
+const ApiError     = require("../../../utils/apiErrors");
 const InvitationRepo = require("../repositories/invitations.repository");
+const Project      = require("../schemas/project.schema");
 const { triggerOnboarding } = require("../../onboarding/onboarding.service");
-const sendInvite = async (adminId, recipientEmail) => {
+
+// ── Plan limits (mirrors frontend FREE_LIMIT constant) ───────────────────────
+const FREE_PROJECT_LIMIT = 3;
+
+/**
+ * sendInvite
+ *
+ * @param {ObjectId} adminId
+ * @param {string}   recipientEmail
+ * @param {string[]} sharedProjectIds  — array of Project ObjectIds the admin chose.
+ *                                       Empty array = team-only invite (no project sharing).
+ */
+const sendInvite = async (adminId, recipientEmail, sharedProjectIds = []) => {
   const emailLower = recipientEmail.toLowerCase().trim();
 
-  // 1. Validation
+  // ── 1. Basic validation ──────────────────────────────────────────────────
   if (!adminId || !emailLower) {
     throw new ApiError(400, "Admin ID and developer email are required");
   }
@@ -15,13 +28,13 @@ const sendInvite = async (adminId, recipientEmail) => {
     throw new ApiError(400, "You cannot send an invitation to yourself");
   }
 
-  // 2. التحقق من وجود المستخدم المستقبل
+  // ── 2. Verify recipient exists ───────────────────────────────────────────
   const recipient = await Developer.findUserByEmail(emailLower);
   if (!recipient) {
     throw new ApiError(404, "Cannot find user with this email");
   }
 
-  // 3. التحقق هل هو عضو فعلاً؟
+  // ── 3. Already a member? ─────────────────────────────────────────────────
   const isAlreadyMember = recipient.teams.some(
     (t) => t.adminId.toString() === adminId.toString()
   );
@@ -29,20 +42,81 @@ const sendInvite = async (adminId, recipientEmail) => {
     throw new ApiError(400, "This developer is already in your team");
   }
 
+  // ── 4. Duplicate pending invite? ─────────────────────────────────────────
   const existingInvite = await InvitationRepo.findPendingInvite(adminId, emailLower);
   if (existingInvite) {
     throw new ApiError(400, "An invitation is already pending for this developer");
   }
 
-  const invitation = await InvitationRepo.createInvitation(adminId, emailLower);
+  // ── 5. Agent 1 — IDOR Guard: admin must own every selected project ───────
+  //    Never trust client IDs. We verify ownership server-side before storing.
+  let validatedProjectIds = [];
+  if (sharedProjectIds && sharedProjectIds.length > 0) {
+    const adminOwnedProjects = await Project.find(
+      { _id: { $in: sharedProjectIds }, owner: adminId, isArchived: false },
+      { _id: 1 }         // minimal projection — just need the IDs
+    ).lean();
 
+    if (adminOwnedProjects.length !== sharedProjectIds.length) {
+      throw new ApiError(
+        403,
+        "One or more selected projects do not belong to you or are archived."
+      );
+    }
+    validatedProjectIds = adminOwnedProjects.map((p) => p._id);
+  }
 
+  // ── 6. Agent 1 — Plan-Limit Gate ─────────────────────────────────────────
+  //    Only relevant when the admin is sharing specific projects.
+  //    We check the invitee's current project load before granting access.
+  if (validatedProjectIds.length > 0) {
+    const isPremiumInvitee = recipient.subscription?.isPremium === true &&
+      ["active", "trialing"].includes(recipient.subscription?.status);
+
+    if (!isPremiumInvitee) {
+      const currentCount = await InvitationRepo.getInviteeProjectCount(
+        recipient._id,
+        emailLower
+      );
+
+      const wouldExceed = currentCount + validatedProjectIds.length > FREE_PROJECT_LIMIT;
+
+      if (wouldExceed) {
+        // ── 6a. Block the invite ───────────────────────────────────────────
+        // Insert an in-app notification for the invitee so they see the
+        // upgrade prompt the next time they log in (fire-and-forget).
+        if (global.io) {
+          global.io.to(recipient._id.toString()).emit("project_limit_exceeded", {
+            adminName: admin.name,
+            currentCount,
+            limit: FREE_PROJECT_LIMIT,
+            message: `${admin.name} tried to share ${validatedProjectIds.length} project(s) with you, but you have reached your FREE plan limit of ${FREE_PROJECT_LIMIT} projects. Upgrade to PRO for unlimited access.`,
+          });
+        }
+
+        throw new ApiError(
+          422,
+          `The invitee has reached the FREE plan limit (${FREE_PROJECT_LIMIT} projects). ` +
+          `They currently control ${currentCount} project(s). ` +
+          `Ask them to upgrade to PRO or share fewer projects.`
+        );
+      }
+    }
+  }
+
+  // ── 7. Create the invitation (with or without project sharing) ───────────
+  const invitation = validatedProjectIds.length > 0
+    ? await InvitationRepo.createInvitationWithProjects(adminId, emailLower, validatedProjectIds)
+    : await InvitationRepo.createInvitation(adminId, emailLower);
+
+  // ── 8. Real-time notification via Socket.io ──────────────────────────────
   if (global.io) {
     global.io.to(recipient._id.toString()).emit("new_invitation", {
       message: `You have been invited to join ${admin.name}'s team`,
       invitationId: invitation._id,
       senderName: admin.name,
-      sentAt: invitation.createdAt
+      sharedProjectCount: validatedProjectIds.length,
+      sentAt: invitation.createdAt,
     });
   }
 
