@@ -15,6 +15,7 @@ const logger = require("../utils/logger");
 
 let host = "127.0.0.1";
 let port = 6379;
+let username = undefined;
 let password = undefined;
 let tls = false;
 
@@ -25,6 +26,7 @@ if (redisUrl) {
     const parsed = new URL(redisUrl);
     host = parsed.hostname;
     port = parsed.port ? parseInt(parsed.port, 10) : 6379;
+    username = parsed.username ? decodeURIComponent(parsed.username) : undefined;
     password = parsed.password ? decodeURIComponent(parsed.password) : undefined;
     if (parsed.protocol === "rediss:") {
       tls = true;
@@ -35,6 +37,7 @@ if (redisUrl) {
 } else {
   host = process.env.REDIS_HOST || "127.0.0.1";
   port = process.env.REDIS_PORT ? parseInt(process.env.REDIS_PORT, 10) : 6379;
+  username = process.env.REDIS_USER || undefined;
   password = process.env.REDIS_PASSWORD || undefined;
   tls = process.env.REDIS_TLS === "true";
 }
@@ -45,6 +48,7 @@ if (redisUrl) {
 const redisConnectionOptions = {
   host,
   port,
+  username,
   password,
   maxRetriesPerRequest: null, // Required by BullMQ — do not remove
   connectTimeout: 10000,
