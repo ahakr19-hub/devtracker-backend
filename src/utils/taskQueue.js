@@ -1,29 +1,8 @@
 const { Queue, Worker } = require('bullmq');
 const redis = require('../config/redis');
 
-// Reuse options but ensure maxRetriesPerRequest is null as BullMQ requires
-const host = process.env.REDIS_HOST || "127.0.0.1";
-const connection = {
-  host,
-  port: process.env.REDIS_PORT ? parseInt(process.env.REDIS_PORT, 10) : 6379,
-  password: process.env.REDIS_PASSWORD || undefined,
-  maxRetriesPerRequest: null, // Required by BullMQ
-  connectTimeout: 10000,
-  reconnectOnError(err) {
-    if (err.message.includes('limit exceeded')) {
-      console.error("🛑 BullMQ: Upstash limit exceeded detected. Aborting queue connections.");
-      return 2; // Magic value to abort ioredis completely
-    }
-  },
-  retryStrategy(times) {
-    // Keep retrying indefinitely, do not return null
-    return Math.min(times * 1000, 10000);
-  }
-};
-
-if (host.includes("upstash.io") || process.env.REDIS_TLS === 'true') {
-  connection.tls = {};
-}
+// Reuse connection options from config/redis to avoid config drift and support unified REDIS_URL configurations
+const { redisConnectionOptions: connection } = require('../config/redis');
 
 // 1. Queue for auto-completion (Delayed Jobs)
 const autoCompleteQueue = new Queue('autoCompleteQueue', { connection });
