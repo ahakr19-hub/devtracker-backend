@@ -7,6 +7,7 @@ const {
   getTeamMembers,
   removeTeamMember,
   updateMemberPermission,
+  assignProjectsToMember,
 } = require('../controllers/teamscontrollers/teams');
 const { protect }    = require('../../../middlewares/auth.middleware');
 const isTeamOwner    = require('../../../middlewares/isTeamOwner.middleware');
@@ -30,5 +31,6 @@ invitaionsRouter.post('/respond/:invitationId', protect, respondToInvitation);
 invitaionsRouter.get('/members', protect, getTeamMembers);
 invitaionsRouter.delete('/members/:memberId', protect, isTeamOwner, removeTeamMember);
 invitaionsRouter.patch('/members/:memberId/permissions', protect, isTeamOwner, updateMemberPermission);
+invitaionsRouter.patch('/members/:memberId/assign-projects', protect, isTeamOwner, assignProjectsToMember);
 
 module.exports = { invitaionsRouter };

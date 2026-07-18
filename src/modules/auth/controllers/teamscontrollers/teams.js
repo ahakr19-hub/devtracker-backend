@@ -166,7 +166,25 @@ const updateMemberPermission = async (req, res, next) => {
   }
 };
 
+const assignProjectsToMember = async (req, res, next) => {
+  try {
+    const adminId = req.user._id;
+    const { memberId } = req.params;
+    const { projectIds = [] } = req.body;
 
+    const result = await teamService.assignProjectsToMember(adminId, memberId, projectIds);
+
+    res.status(200).json({
+      status: "success",
+      message: result.message,
+      data: {
+        sharedProjects: result.sharedProjects
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 
 module.exports = {
   sendInvite,
@@ -175,6 +193,7 @@ module.exports = {
   respondToInvitation,
   getTeamMembers,
   removeTeamMember,
-  updateMemberPermission
+  updateMemberPermission,
+  assignProjectsToMember
 };
 

@@ -292,4 +292,102 @@ if (!allowedKeys.includes(key)) {
     updated: { [key]: value } // بنرجع الصلاحية اللي اتعدلت بس
   };
 };
-module.exports = {sendInvite , getMyInvitations , respondToInvite , getTeamMembers , removeMember , changeMemberPermissions}
+
+const assignProjectsToMember = async (adminId, memberId, projectIds = []) => {
+  if (!adminId || !memberId) {
+    throw new ApiError(400, "Admin ID and Member ID are required");
+  }
+
+  // 1. Verify recipient exists
+  const recipient = await Developer.findUserById(memberId);
+  if (!recipient) {
+    throw new ApiError(404, "Member not found");
+  }
+
+  // 2. IDOR Guard: Admin must own every project being assigned
+  let validatedProjectIds = [];
+  if (projectIds && projectIds.length > 0) {
+    const adminOwnedProjects = await Project.find(
+      { _id: { $in: projectIds }, owner: adminId, isArchived: false },
+      { _id: 1 }
+    ).lean();
+
+    if (adminOwnedProjects.length !== projectIds.length) {
+      throw new ApiError(
+        403,
+        "One or more selected projects do not belong to you or are archived."
+      );
+    }
+    validatedProjectIds = adminOwnedProjects.map((p) => p._id);
+  }
+
+  // 3. Plan-Limit check for Free plan recipient
+  const isPremiumInvitee = recipient.subscription?.isPremium === true &&
+    ["active", "trialing"].includes(recipient.subscription?.status);
+
+  if (!isPremiumInvitee) {
+    const [ownedCount, otherSharedCount] = await Promise.all([
+      // Branch 1: Projects owned by the recipient
+      Project.countDocuments({ owner: recipient._id, isArchived: false }),
+
+      // Branch 2: Unique projects shared by other admins
+      InvitationRepo.findAcceptedInvite(adminId, recipient.email).then(async (thisAdminInvite) => {
+        const thisAdminInviteId = thisAdminInvite ? thisAdminInvite._id : null;
+        
+        // Find other accepted invitations excluding this admin's one
+        const query = {
+          recipientEmail: recipient.email.toLowerCase(),
+          status: "accepted",
+          sharedProjects: { $exists: true, $not: { $size: 0 } }
+        };
+        if (thisAdminInviteId) {
+          query._id = { $ne: thisAdminInviteId };
+        }
+
+        const InvitationModel = require("../schemas/invitation.schema");
+        const results = await InvitationModel.aggregate([
+          { $match: query },
+          { $unwind: "$sharedProjects" },
+          { $group: { _id: "$sharedProjects" } },
+          { $count: "total" }
+        ]);
+
+        return results.length > 0 ? results[0].total : 0;
+      })
+    ]);
+
+    const totalProjectsIfAssigned = ownedCount + otherSharedCount + validatedProjectIds.length;
+    if (totalProjectsIfAssigned > FREE_PROJECT_LIMIT) {
+      throw new ApiError(
+        422,
+        `The member has reached the FREE plan limit (${FREE_PROJECT_LIMIT} projects). ` +
+        `They currently control ${ownedCount + otherSharedCount} project(s). ` +
+        `Ask them to upgrade to PRO or share fewer projects.`
+      );
+    }
+  }
+
+  // 4. Update the invitation record
+  const invitation = await InvitationRepo.findAcceptedInvite(adminId, recipient.email);
+  if (!invitation) {
+    throw new ApiError(404, "No active invitation or team membership found for this developer.");
+  }
+
+  invitation.sharedProjects = validatedProjectIds;
+  await invitation.save();
+
+  return {
+    message: "Projects assigned successfully",
+    sharedProjects: validatedProjectIds
+  };
+};
+
+module.exports = {
+  sendInvite,
+  getMyInvitations,
+  respondToInvite,
+  getTeamMembers,
+  removeMember,
+  changeMemberPermissions,
+  assignProjectsToMember
+};

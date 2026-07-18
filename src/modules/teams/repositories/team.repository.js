@@ -17,6 +17,7 @@
  */
 
 const Developer = require("../../auth/schemas/developer.schema");
+const Invitation = require("../../auth/schemas/invitation.schema");
 
 /** Only these user fields are ever sent to the client. */
 const USER_FIELDS = "_id name email avatar";
@@ -28,12 +29,24 @@ const USER_FIELDS = "_id name email avatar";
  * Uses the existing multi-key index on "teams.adminId" in developerSchema.
  *
  * @param {string} adminId  — The team owner's _id
- * @returns {Promise<object[]>}  Lean user objects: { _id, name, email, avatar }
+ * @returns {Promise<object[]>}  Lean user objects: { _id, name, email, avatar, sharedProjects }
  */
 const findMyTeamMembers = async (adminId) => {
-  return Developer.find({ "teams.adminId": adminId })
+  const members = await Developer.find({ "teams.adminId": adminId })
     .select(USER_FIELDS)
     .lean();
+
+  const acceptedInvites = await Invitation.find({
+    sender: adminId,
+    status: "accepted"
+  }).select("recipientEmail sharedProjects").lean();
+
+  const inviteMap = new Map(acceptedInvites.map(i => [i.recipientEmail.toLowerCase(), i.sharedProjects]));
+
+  return members.map(m => ({
+    ...m,
+    sharedProjects: inviteMap.get(m.email.toLowerCase()) || []
+  }));
 };
 
 /**

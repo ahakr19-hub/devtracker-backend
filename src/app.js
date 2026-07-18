@@ -47,7 +47,7 @@ const ALLOWED_ORIGINS = [
   "https://dev-tracker-api-five.vercel.app",                                        // ← Main Vercel domain
   "https://dev-tracker-api-git-main-hellocan694-bits-projects.vercel.app",           // ← Git/branch Vercel domain
   "https://dev-tracker-qlslanjqn-hellocan694-bits-projects.vercel.app",              // ← Preview Vercel domain
-  "https://dev-tracker-production-3ef3.up.railway.app", // ← Railway backend self-origin
+  "https://devtracker-backend-production-11df.up.railway.app", // ← Railway backend self-origin
 ];
 
 // ==========================================
@@ -77,7 +77,7 @@ app.use(
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'", "'unsafe-inline'"],
         // هنا بنقول لهلمت: وافق على اتصالات السوكيت اللي رايحة وجاية للدومينات دي
-        connectSrc: ["'self'", "wss://dev-tracker-production-3ef3.up.railway.app", "https://dev-tracker-production-3ef3.up.railway.app", "http://localhost:3000", "ws://localhost:3000"],
+        connectSrc: ["'self'", "wss://devtracker-backend-production-11df.up.railway.app", "https://devtracker-backend-production-11df.up.railway.app", "http://localhost:3000", "ws://localhost:3000"],
         objectSrc: ["'none'"],
         upgradeInsecureRequests: [],
       },

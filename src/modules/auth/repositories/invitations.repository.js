@@ -132,6 +132,14 @@ const updateSinglePermission = async (adminId, memberId, key, value) => {
   );
 };
 
+const findAcceptedInvite = async (senderId, recipientEmail) => {
+  return await Invitation.findOne({
+    sender: senderId,
+    recipientEmail,
+    status: "accepted",
+  });
+};
+
 module.exports = {
   createInvitation,
   createInvitationWithProjects,
@@ -144,4 +152,5 @@ module.exports = {
   findTeamMembers,
   removeMemberFromTeam,
   updateSinglePermission,
+  findAcceptedInvite,
 };
