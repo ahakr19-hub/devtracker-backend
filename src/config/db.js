@@ -15,6 +15,7 @@ const dbConnection = async () => {
   await mongoose.connect(process.env.MONGO_URL, {
     family: 4,                       // Force IPv4 — avoids DNS lookup issues on Node 18+
     serverSelectionTimeoutMS: 5000,  // Fail fast instead of hanging for 30 s
+    maxPoolSize: 100,                // Increase connection pool size for high concurrency
   });
 
   console.log("✅ Database connected successfully");
