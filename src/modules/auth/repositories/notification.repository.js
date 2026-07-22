@@ -62,9 +62,19 @@ const markAllAsRead = async (userId) => {
   );
 };
 
+/**
+ * Clear all notifications for a user.
+ * @param {string} userId
+ * @returns {Promise<import('mongoose').DeleteResult>}
+ */
+const clearAllNotifications = async (userId) => {
+  return Notification.deleteMany({ userId });
+};
+
 module.exports = {
   createNotification,
   findByUserId,
   markOneAsRead,
   markAllAsRead,
+  clearAllNotifications,
 };

@@ -12,11 +12,13 @@ const { protect } = require("../../../middlewares/auth.middleware");
 const {
   getNotifications,
   markNotificationRead,
+  clearNotifications,
 } = require("../controllers/notification.controller");
 
 const notificationRouter = express.Router();
 
 notificationRouter.get("/",              protect, getNotifications);
 notificationRouter.patch("/:id/read",   protect, markNotificationRead);
+notificationRouter.delete("/",          protect, clearNotifications);
 
 module.exports = notificationRouter;

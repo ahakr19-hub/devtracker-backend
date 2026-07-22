@@ -11,6 +11,7 @@ const ApiError  = require("../../../utils/apiErrors");
 const {
   findByUserId,
   markOneAsRead,
+  clearAllNotifications,
 } = require("../repositories/notification.repository");
 
 // ── GET /api/notifications ─────────────────────────────────────────────────────
@@ -53,7 +54,24 @@ const markNotificationRead = async (req, res, next) => {
   }
 };
 
+// ── DELETE /api/notifications ──────────────────────────────────────────────────
+
+const clearNotifications = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    await clearAllNotifications(userId);
+
+    res.status(200).json({
+      status: "success",
+      message: "All notifications cleared successfully",
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   getNotifications,
   markNotificationRead,
+  clearNotifications,
 };
