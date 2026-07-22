@@ -35,6 +35,7 @@ const feedbackRouter = require("./modules/feedbacks/routers/feedback.routes");
 const githubRouter = require("./modules/github/routes/github.routes");
 const { onboardingRouter } = require("./modules/onboarding/onboarding.routes");
 const { teamRouter } = require("./modules/teams/routes/team.routes");
+const notificationRouter = require("./modules/auth/routes/notification.routes");
 const { autoCompleteQueue, taskSyncQueue } = require('./utils/taskQueue');
 
 const app = express();
@@ -174,6 +175,7 @@ app.use('/feedbacks', feedbackRouter);
 app.use('/github', githubRouter);
 app.use('/onboarding', onboardingRouter);
 app.use('/api/teams', teamRouter);
+app.use('/api/notifications', notificationRouter);
 
 // ── Global error handler (must be the LAST middleware) ────────────────────────
 app.use(errorMiddleware);

@@ -140,6 +140,31 @@ const findAcceptedInvite = async (senderId, recipientEmail) => {
   });
 };
 
+/**
+ * Find the accepted invitation for a specific member by their Developer _id.
+ * Used by terminateMember to collect the exact revokedProjectIds before removal.
+ *
+ * Strategy:
+ *  1. Resolve the member's email from their Developer doc (_id → email, O(1) pk lookup).
+ *  2. Query the Invitation by sender + email + status=accepted and populate sharedProjects.
+ *
+ * @param {string} adminId   — The admin's ObjectId
+ * @param {string} memberId  — The member developer's ObjectId
+ * @returns {Promise<Invitation|null>}
+ */
+const findAcceptedInviteByMemberId = async (adminId, memberId) => {
+  // Step 1: resolve email (minimal projection — email only)
+  const member = await Developer.findById(memberId).select('email').lean();
+  if (!member) return null;
+
+  // Step 2: fetch invitation with project references populated
+  return await Invitation.findOne({
+    sender: adminId,
+    recipientEmail: member.email.toLowerCase(),
+    status: 'accepted',
+  }).populate('sharedProjects', '_id name');
+};
+
 module.exports = {
   createInvitation,
   createInvitationWithProjects,
@@ -153,4 +178,5 @@ module.exports = {
   removeMemberFromTeam,
   updateSinglePermission,
   findAcceptedInvite,
+  findAcceptedInviteByMemberId,
 };

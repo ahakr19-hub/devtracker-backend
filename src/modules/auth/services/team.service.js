@@ -3,6 +3,7 @@ const ApiError     = require("../../../utils/apiErrors");
 const InvitationRepo = require("../repositories/invitations.repository");
 const Project      = require("../schemas/project.schema");
 const { triggerOnboarding } = require("../../onboarding/onboarding.service");
+const notifService = require("./notification.service");
 
 // ── Plan limits (mirrors frontend FREE_LIMIT constant) ───────────────────────
 const FREE_PROJECT_LIMIT = 3;
@@ -110,15 +111,25 @@ const sendInvite = async (adminId, recipientEmail, sharedProjectIds = []) => {
     : await InvitationRepo.createInvitation(adminId, emailLower);
 
   // ── 8. Real-time notification via Socket.io ──────────────────────────────
+  // Emit the legacy dedicated event (for any other listeners) AND persist
+  // via the notification service so the invitation card survives a page refresh.
+  const inviteMessage = `You have been invited to join ${admin.name}'s team`;
   if (global.io) {
     global.io.to(recipient._id.toString()).emit("new_invitation", {
-      message: `You have been invited to join ${admin.name}'s team`,
+      message: inviteMessage,
       invitationId: invitation._id,
       senderName: admin.name,
       sharedProjectCount: validatedProjectIds.length,
       sentAt: invitation.createdAt,
     });
   }
+  notifService.notifySystemEvent({
+    userId:   recipient._id,
+    title:    "New Invitation",
+    message:  inviteMessage,
+    subtype:  "invitation",
+    metadata: { invitationId: invitation._id.toString(), senderName: admin.name },
+  }).catch((e) => console.error("[notifService] sendInvite notification failed:", e.message));
 
   return invitation;
 };
@@ -156,13 +167,21 @@ const respondToInvite = async (userId, invitationId, decision) => {
     await InvitationRepo.updateInvitationStatus(invitationId, "accepted");
 
     // --- ⚡ إشعار للأدمن إن الدعوة اتقبلت ⚡ ---
+    const acceptMsg = `${user.name} has joined your team!`;
     if (global.io) {
       global.io.to(invitation.sender.toString()).emit("invitation_accepted", {
         developerName: user.name,
         developerId: user._id,
-        message: `${user.name} has joined your team!`
+        message: acceptMsg,
       });
     }
+    notifService.notifySystemEvent({
+      userId:   invitation.sender,
+      title:    "Team Update",
+      message:  acceptMsg,
+      subtype:  "invitation_accepted",
+      metadata: { developerName: user.name, developerId: user._id.toString() },
+    }).catch((e) => console.error("[notifService] acceptInvite notification failed:", e.message));
 
     // --- 🤖 Automated Onboarding Bot: triggers if invitation has a projectId ---
     // Fire-and-forget — does NOT block the accept response.
@@ -183,12 +202,20 @@ const respondToInvite = async (userId, invitationId, decision) => {
     await InvitationRepo.updateInvitationStatus(invitationId, "rejected");
 
     // --- ⚡ إشعار للأدمن بالرفض ⚡ ---
+    const rejectMsg = `${user.name} declined your invitation.`;
     if (global.io) {
       global.io.to(invitation.sender.toString()).emit("invitation_rejected", {
         developerEmail: user.email,
-        message: `${user.name} declined your invitation.`
+        message: rejectMsg,
       });
     }
+    notifService.notifySystemEvent({
+      userId:   invitation.sender,
+      title:    "Team Update",
+      message:  rejectMsg,
+      subtype:  "invitation_rejected",
+      metadata: { developerEmail: user.email },
+    }).catch((e) => console.error("[notifService] rejectInvite notification failed:", e.message));
 
     return { message: "Invitation rejected." };
   }
@@ -244,15 +271,104 @@ const removeMember = async (adminId , memberId) => {
   }
   await InvitationRepo.removeMemberFromTeam(adminId, memberId);
 
+  const removeMsg = "You have been removed from the team by the admin.";
   if (global.io) {
     global.io.to(memberId.toString()).emit("removed_from_team", {
-      message: "You have been removed from the team by the admin.",
+      message: removeMsg,
       adminId: adminId,
     });
   }
+  notifService.notifySystemEvent({
+    userId:   memberId,
+    title:    "Removed From Team",
+    message:  removeMsg,
+    subtype:  "removed_from_team",
+    metadata: { adminId: adminId.toString() },
+  }).catch((e) => console.error("[notifService] removeMember notification failed:", e.message));
 
   return { message: "Member removed successfully from your team" };
 }
+
+/**
+ * terminateMember — Full revocation with real-time project access cleanup.
+ *
+ * Difference from removeMember:
+ *  - Collects revokedProjectIds from the accepted Invitation BEFORE removal
+ *    so the client can filter them from its local project BehaviorSubject cache.
+ *  - Emits `access:revoked` → developer's socket room (triggers cache cleanup + redirect).
+ *  - Emits `member:terminated` → admin's socket room (triggers optimistic UI update).
+ *
+ * @param {ObjectId} adminId
+ * @param {ObjectId} memberId
+ */
+const terminateMember = async (adminId, memberId) => {
+  if (!adminId || !memberId) {
+    throw new ApiError(400, "Admin ID and Member ID are required");
+  }
+
+  // 1. Verify admin exists
+  const admin = await Developer.findUserById(adminId);
+  if (!admin) {
+    throw new ApiError(404, "Admin not found");
+  }
+
+  // 2. Verify member exists and is in this admin's team
+  const member = await Developer.findUserById(memberId);
+  if (!member) {
+    throw new ApiError(404, "Member not found");
+  }
+
+  const isInTeam = member.teams.some(
+    (t) => t.adminId.toString() === adminId.toString()
+  );
+  if (!isInTeam) {
+    throw new ApiError(400, "This developer is not a member of your team");
+  }
+
+  // 3. Collect the revokedProjectIds BEFORE removal
+  //    (invitation.sharedProjects holds the exact set of projects this admin shared)
+  const invitation = await InvitationRepo.findAcceptedInviteByMemberId(adminId, memberId);
+  const revokedProjectIds = invitation?.sharedProjects
+    ? invitation.sharedProjects.map((p) => (p._id ? p._id.toString() : p.toString()))
+    : [];
+
+  // 4. Remove member from Developer.teams[] and clean up the invitation record
+  await InvitationRepo.removeMemberFromTeam(adminId, memberId);
+
+  // 5. Emit `access:revoked` → developer's room
+  //    Client-side: filters revokedProjectIds from the local project BehaviorSubject
+  //    and triggers a redirect. We ALSO persist via notification service.
+  const revokedMsg = `Your access has been revoked by ${admin.name}. You no longer have access to their shared projects.`;
+  if (global.io) {
+    global.io.to(memberId.toString()).emit("access:revoked", {
+      developerId:       memberId.toString(),
+      revokedProjectIds,
+      adminName:         admin.name,
+      message:           revokedMsg,
+    });
+  }
+  notifService.notifySystemEvent({
+    userId:   memberId,
+    title:    "⚠️ Access Revoked",
+    message:  revokedMsg,
+    subtype:  "access_revoked",
+    metadata: { revokedProjectIds, adminName: admin.name },
+  }).catch((e) => console.error("[notifService] terminateMember notification failed:", e.message));
+
+  // 6. Emit `member:terminated` → admin's room for optimistic UI update
+  if (global.io) {
+    global.io.to(adminId.toString()).emit("member:terminated", {
+      memberId:   memberId.toString(),
+      memberName: member.name,
+      message:    `${member.name} has been removed from your team.`,
+    });
+  }
+
+  return {
+    message:           `${member.name} has been terminated and their project access revoked.`,
+    revokedProjectIds,
+  };
+};
 
 // بدل newPermissions، هنستقبل key (اسم الصلاحية) و value (true/false)
 const changeMemberPermissions = async (adminId, memberId, key, value) => {
@@ -277,15 +393,23 @@ if (!allowedKeys.includes(key)) {
     throw new ApiError(404, "Member not found in your team or you are not the admin");
   }
 
-  // 3. التنبيه بالـ Socket
+  // 3. Legacy dedicated socket event (kept for backward compat)
+  //    + DB-backed notification via notification service
+  const adminDoc = await Developer.findUserById(adminId);
   if (global.io) {
     global.io.to(memberId.toString()).emit("permissions_updated", {
       adminId: adminId,
-      updatedKey: key, 
+      updatedKey: key,
       newValue: value,
-      message: `Your permission '${key}' has been updated to ${value}.`
+      message: `Your permission '${key}' has been updated to ${value}.`,
     });
   }
+  notifService.notifyPermissionsUpdate({
+    userId:        memberId,
+    permissionKey: key,
+    newValue:      value,
+    adminName:     adminDoc?.name || "Admin",
+  }).catch((e) => console.error("[notifService] permissions notification failed:", e.message));
 
   return { 
     message: "Permission updated successfully", 
@@ -388,6 +512,7 @@ module.exports = {
   respondToInvite,
   getTeamMembers,
   removeMember,
+  terminateMember,
   changeMemberPermissions,
   assignProjectsToMember
 };

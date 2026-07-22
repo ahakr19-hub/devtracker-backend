@@ -12,6 +12,7 @@ const {
 } = require("../repositories/task.repository");
 const projectSchema = require("../schemas/project.schema");
 const taskActivityService = require('./taskAvtivity.service');
+const notifService = require('./notification.service');
 
 const createTaskService = async (developerId, projectId, data) => {
   if (!developerId || !projectId)
@@ -229,6 +230,22 @@ const updateTaskService = async (requesterId, projectId, taskId, rawUpdates, isA
   const updatedTask = await updateTaskById(taskId, projectId, safeUpdates);
   if (!updatedTask)
     throw new ApiError(404, "Task not found or could not be updated");
+
+  // 6. Fire a DB-backed notification if assignedTo changed
+  //    We compare the PREVIOUS assignee (from the fetched task) to the NEW one.
+  //    Fire-and-forget — does NOT block the response.
+  if (
+    safeUpdates.assignedTo &&
+    String(safeUpdates.assignedTo) !== String(task.assignedTo)
+  ) {
+    const requester = await findUserById(requesterId);
+    notifService.notifyTaskAssigned({
+      taskId:           taskId.toString(),
+      taskTitle:        updatedTask.title,
+      assignedToUserId: safeUpdates.assignedTo.toString(),
+      assignedByName:   requester?.name || "Admin",
+    }).catch((e) => console.error("[notifService] task assignment notification failed:", e.message));
+  }
 
   return updatedTask;
 };
