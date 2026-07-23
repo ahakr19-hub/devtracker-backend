@@ -29,7 +29,7 @@ invitaionsRouter.post('/respond/:invitationId', protect, respondToInvitation);
 
 // ── Team member management (admin-only operations use isTeamOwner) ────────────
 invitaionsRouter.get('/members', protect, getTeamMembers);
-invitaionsRouter.delete('/members/:memberId', protect, isTeamOwner, removeTeamMember);
+invitaionsRouter.delete('/members/:memberId', protect, isTeamOwner, terminateMember);
 invitaionsRouter.patch('/members/:memberId/permissions', protect, isTeamOwner, updateMemberPermission);
 invitaionsRouter.patch('/members/:memberId/assign-projects', protect, isTeamOwner, assignProjectsToMember);
 
