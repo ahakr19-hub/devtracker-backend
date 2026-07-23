@@ -141,6 +141,29 @@ const findAcceptedInvite = async (senderId, recipientEmail) => {
 };
 
 /**
+ * clearSharedProjects — wipes the sharedProjects array from an accepted invitation
+ * after the member has been terminated so no stale project references remain in DB.
+ *
+ * @param {string} adminId   — The admin's ObjectId
+ * @param {string} memberId  — The member developer's ObjectId
+ * @returns {Promise<Invitation|null>}
+ */
+const clearSharedProjects = async (adminId, memberId) => {
+  const member = await Developer.findById(memberId).select('email').lean();
+  if (!member) return null;
+
+  return await Invitation.findOneAndUpdate(
+    {
+      sender: adminId,
+      recipientEmail: member.email.toLowerCase(),
+      status: 'accepted',
+    },
+    { $set: { sharedProjects: [] } },
+    { new: true }
+  );
+};
+
+/**
  * Find the accepted invitation for a specific member by their Developer _id.
  * Used by terminateMember to collect the exact revokedProjectIds before removal.
  *
@@ -179,4 +202,5 @@ module.exports = {
   updateSinglePermission,
   findAcceptedInvite,
   findAcceptedInviteByMemberId,
+  clearSharedProjects,
 };

@@ -332,7 +332,11 @@ const terminateMember = async (adminId, memberId) => {
     ? invitation.sharedProjects.map((p) => (p._id ? p._id.toString() : p.toString()))
     : [];
 
-  // 4. Remove member from Developer.teams[] and clean up the invitation record
+  // 4a. Wipe sharedProjects from the invitation BEFORE removing the team entry
+  //     so no stale project references linger in the DB after termination.
+  await InvitationRepo.clearSharedProjects(adminId, memberId);
+
+  // 4b. Remove member from Developer.teams[] and clean up the invitation record
   await InvitationRepo.removeMemberFromTeam(adminId, memberId);
 
   // 5. Emit `access:revoked` → developer's room
