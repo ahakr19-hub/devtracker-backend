@@ -257,11 +257,22 @@ const getMyInvitations = async (userId) => {
 };
 
 const removeMember = async (adminId , memberId) => {
-  if(!adminId , !memberId){
+  if(!adminId || !memberId){
     throw new ApiError(400, "Admin ID and Member ID are required");
   }
 
+  // 1. Verify admin exists
+  const admin = await Developer.findUserById(adminId);
+  if (!admin) {
+    throw new ApiError(404, "Admin not found");
+  }
+
+  // 2. Verify member exists and is in this admin's team
   const member = await Developer.findUserById(memberId);
+  if (!member) {
+    throw new ApiError(404, "Member not found");
+  }
+
   const isInTeam = member.teams.some(
     (t) => t.adminId.toString() === adminId.toString()
   );
@@ -269,6 +280,18 @@ const removeMember = async (adminId , memberId) => {
   if (!isInTeam) {
     throw new ApiError(400, "This developer is not a member of your team");
   }
+
+  // 3. Find and revoke the invitation projects
+  const invitation = await InvitationRepo.findAcceptedInviteByMemberId(adminId, memberId);
+  const revokedProjectIds = invitation?.sharedProjects
+    ? invitation.sharedProjects.map((p) => (p._id ? p._id.toString() : p.toString()))
+    : [];
+
+  if (invitation) {
+    await InvitationRepo.clearSharedProjects(adminId, memberId);
+    await InvitationRepo.updateInvitationStatus(invitation._id, "rejected");
+  }
+
   await InvitationRepo.removeMemberFromTeam(adminId, memberId);
 
   const removeMsg = "You have been removed from the team by the admin.";
@@ -277,13 +300,20 @@ const removeMember = async (adminId , memberId) => {
       message: removeMsg,
       adminId: adminId,
     });
+    // Emit access:revoked so the member's UI project cache gets updated in real-time
+    global.io.to(memberId.toString()).emit("access:revoked", {
+      developerId:       memberId.toString(),
+      revokedProjectIds,
+      adminName:         admin.name,
+      message:           `Your project access has been revoked because you were removed from ${admin.name}'s team.`,
+    });
   }
   notifService.notifySystemEvent({
     userId:   memberId,
     title:    "Removed From Team",
     message:  removeMsg,
     subtype:  "removed_from_team",
-    metadata: { adminId: adminId.toString() },
+    metadata: { adminId: adminId.toString(), revokedProjectIds },
   }).catch((e) => console.error("[notifService] removeMember notification failed:", e.message));
 
   return { message: "Member removed successfully from your team" };
@@ -332,11 +362,13 @@ const terminateMember = async (adminId, memberId) => {
     ? invitation.sharedProjects.map((p) => (p._id ? p._id.toString() : p.toString()))
     : [];
 
-  // 4a. Wipe sharedProjects from the invitation BEFORE removing the team entry
-  //     so no stale project references linger in the DB after termination.
-  await InvitationRepo.clearSharedProjects(adminId, memberId);
+  // 4a. Wipe sharedProjects and reject the invitation status so it's no longer accepted
+  if (invitation) {
+    await InvitationRepo.clearSharedProjects(adminId, memberId);
+    await InvitationRepo.updateInvitationStatus(invitation._id, "rejected");
+  }
 
-  // 4b. Remove member from Developer.teams[] and clean up the invitation record
+  // 4b. Remove member from Developer.teams[]
   await InvitationRepo.removeMemberFromTeam(adminId, memberId);
 
   // 5. Emit `access:revoked` → developer's room
