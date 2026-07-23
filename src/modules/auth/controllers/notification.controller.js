@@ -7,7 +7,7 @@
  *   PATCH /api/notifications/:id/read — mark one notification as read
  */
 
-const ApiError  = require("../../../utils/apiErrors");
+const ApiError = require("../../../utils/apiErrors");
 const {
   findByUserId,
   markOneAsRead,
@@ -18,7 +18,7 @@ const {
 
 const getNotifications = async (req, res, next) => {
   try {
-    const userId        = req.user._id;
+    const userId = req.user._id;
     const notifications = await findByUserId(userId);
 
     res.status(200).json({
@@ -35,8 +35,8 @@ const getNotifications = async (req, res, next) => {
 
 const markNotificationRead = async (req, res, next) => {
   try {
-    const { id }    = req.params;
-    const userId    = req.user._id;
+    const { id } = req.params;
+    const userId = req.user._id;
 
     const updated = await markOneAsRead(id, userId);
 
@@ -47,7 +47,7 @@ const markNotificationRead = async (req, res, next) => {
 
     res.status(200).json({
       status: "success",
-      data:   updated,
+      data: updated,
     });
   } catch (err) {
     next(err);
@@ -58,12 +58,13 @@ const markNotificationRead = async (req, res, next) => {
 
 const clearNotifications = async (req, res, next) => {
   try {
-    const userId = req.user._id;
-    await clearAllNotifications(userId);
+    const userId = req.user._id || req.user.id;
+    const result = await clearAllNotifications(userId);
 
     res.status(200).json({
       status: "success",
       message: "All notifications cleared successfully",
+      deleted: result.deletedCount
     });
   } catch (err) {
     next(err);

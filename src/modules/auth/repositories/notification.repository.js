@@ -68,7 +68,8 @@ const markAllAsRead = async (userId) => {
  * @returns {Promise<import('mongoose').DeleteResult>}
  */
 const clearAllNotifications = async (userId) => {
-  return Notification.deleteMany({ userId });
+  const objectId = typeof userId === "string" ? new mongoose.Types.ObjectId(userId) : userId;
+  return Notification.deleteMany({ userId: objectId });
 };
 
 module.exports = {
